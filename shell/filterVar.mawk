@@ -19,17 +19,21 @@ readMut {
   if ($0 !~ "STOP") {
     # filter for the right chromosome
     if ($1 !~ chrom) next;
-    # # store the current pos
-    # if (step == 1) {
-    #   current = $2;
-    # }
-    # # store ordered coords in POS array
-    # POS[step++] = $2;
+    # store the current pos
+    if (step == 1) {
+      currentPos = $2;
+    }
+    # store ordered coords in POS array
+    POS[step++] = $2;
     # store coords and respective Alt data in POSALT
     # POSALT[1242352] = "A"
     POSALT[$2] = $5;
   }
   else {
+    # save last position in mutfile
+    lastPos = POS[step-1];
+    # reset step
+    step=1;
     readMut = 0;
     writeHeader = 1;
   }
@@ -53,7 +57,13 @@ writeHeader {
 }
 readData {
   pos=$2;
+  if (pos < currentPos) next;
   if (pos in POSALT) {
     printf("%s\t%s\t%s\t%s\t%s\t%s\n",$1,$2,$3,POSALT[pos],$(COL[POSALT[pos]]), $NF);
+    # bump currentPos to next mut position
+    currentPos = POS[step++];
+    next;
   }
+  # stop if end is reached
+  if (pos > lastPos) exit;
 }'
