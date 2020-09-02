@@ -19,15 +19,19 @@ readMut {
   if ($0 !~ "STOP") {
     # filter for the right chromosome
     if ($1 !~ chrom) next;
+    # adjust coords for deletion
+    ($5 == "-") ? pos=$2-1 : pos=$2;
     # store the current pos
     if (step == 1) {
-      currentPos = $2;
+      currentPos = pos;
     }
     # store ordered coords in POS array
-    POS[step++] = $2;
-    # store coords and respective Alt data in POSALT
+    POS[step++] = pos;
+    # store coords and respective Ref and Alt data in POSALT
     # POSALT[1242352] = "A"
-    POSALT[$2] = $5;
+    POSEND[pos] = $3;
+    POSREF[pos] = $4;
+    POSALT[pos] = $5;
   }
   else {
     # save last position in mutfile
@@ -58,8 +62,27 @@ writeHeader {
 readData {
   pos=$2;
   if (pos < currentPos) next;
+  # print data at matching positions 
   if (pos in POSALT) {
-    printf("%s\t%s\t%s\t%s\t%s\t%s\n",$1,$2,$3,POSALT[pos],$(COL[POSALT[pos]]), $NF);
+    # get the right column depending on the ALT column
+    # get the Ref and Alt from the arrays
+    ref = POSREF[pos];
+    alt = POSALT[pos];
+    # get the right data column
+    # for deletion, start has to be increased again
+    if (alt == "-") {
+      base = "D";
+      pos++;
+    } else {
+      if (alt == "-") {
+        base = "D"
+      } else {
+        base = alt;
+      }
+    }
+    
+    data = $(COL[base]);
+    printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\n",$1,pos,POSEND[pos],ref,alt,data,$NF);
     # bump currentPos to next mut position
     currentPos = POS[step++];
     next;
