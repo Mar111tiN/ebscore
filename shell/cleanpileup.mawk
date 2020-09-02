@@ -12,7 +12,7 @@ mawk '
     
     # remove position traces from all read fields
     gsub(/\^[^\t]|\$/,"",read);
-    # 
+    # remove the indel traces and substitute with 
     while (match(read,/[+-][0-9]+/)) {
         pre = substr(read,1,RSTART-2);
         indel = substr(read,RSTART,1); # + or -
@@ -20,13 +20,13 @@ mawk '
         l = substr(read,RSTART+1,RLENGTH-1);
         post = substr(read,RSTART+RLENGTH+l);
         if (indel == "-") {
-            if (match(base,/[ACGT]/)) {
+            if (match(base,/[ACGT.]/)) {
                 base = "D";
             } else {
                 base = "d";
             }
         } else {
-            if (match(base,/[ACGT]/)) {
+            if (match(base,/[ACGT.]/)) {
                 base = "I";
             } else {
                 base = "i";

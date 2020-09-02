@@ -1,14 +1,6 @@
 #!/bin/sh
 
-tumor=$1;
-pon=$2;
-output=$3;
-
-echo $tumor > ${output}.pre;
-cat $pon >> ${output}.pre;
-
-cat ${output}.pre | \
-awk  '
+echo $1 | cat - $2 | awk  '
 BEGIN {
     FS="/";
 }
@@ -18,8 +10,8 @@ NR==1 {
     split(string,pat,"_");
     pattern="/" pat[1];
     print $0;
+    next;
 }
 $0 !~ pattern {
     print $0;
-}' > $output;
-rm ${output}.pre;
+}'

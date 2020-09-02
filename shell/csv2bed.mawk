@@ -9,4 +9,4 @@ $0 !~ "Chr" {
         start = start -1;
     }
     print($1,start,start+1);
-}'
+}' $1

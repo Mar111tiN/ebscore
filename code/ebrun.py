@@ -31,7 +31,7 @@ def run_eb(table, tumor_bam, output, pon_list, chrom, log, threads, EBparams, fu
     # bed file can contain all chromosomes because chrom restriction comes with the -r parameter
     bed_file = f"{base_file}.bed"
     # create the bed file for mpileup
-    shell(f"{csv2bed} < {table} > {bed_file}")
+    shell(f"{csv2bed} {table} > {bed_file}")
 
     # # if I want to restrict chromosome in file:
     # mut_chr_file = f"{base_file}.csv"
@@ -46,14 +46,14 @@ def run_eb(table, tumor_bam, output, pon_list, chrom, log, threads, EBparams, fu
 
     show_output(
         f"Piling up {chrom} of {tumor_bam} with Pon List.", color='normal')
-    shell(f"cat {sample_list}")
+    shell(f"cat {sample_cat list}")
     # do the pileup into the matrix file
     matrix_file = f"{base_file}.matrix"
     pileup_cmd = f"samtools mpileup -B -q {EBparams['MAPQ']} -Q {EBparams['Q']}"
     pileup_cmd += f" -l {bed_file} -r {chrom} -b {sample_list}"
     # cut -f $({pon2cols}< {sample_list}) creates a cut command only including the desired
 
-    pipe_cmd = f"{pileup_cmd} | cut -f $({pon2cols} < {sample_list}) | {cleanpileup} | {pile2count} > {matrix_file}"
+    pipe_cmd = f"{pileup_cmd} | cut -f $({pon2cols} {sample_list}) | {cleanpileup} | {pile2count} > {matrix_file}"
     # do the pileup to matrix_file
     show_command(pipe_cmd, multi=False)
     shell(pipe_cmd)
