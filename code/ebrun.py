@@ -16,6 +16,7 @@ def run_eb(table, tumor_bam, output, pon_list, chrom, log, threads, EBparams, fu
     '''
     master function to start eb_computation
     '''
+    
     # ############## LOAD DATA ###############################
     show_output(f"Computing EBscore for chrom {chrom}", color='normal')
 

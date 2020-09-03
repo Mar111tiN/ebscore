@@ -1,4 +1,14 @@
 #!/bin/sh
+
+# mawk tool for extraction of base counts for clean pileup data
+# usage:
+# samtools mpileup | [ cut -f only readcolumns | ] cleanpileup | pile2count
+# input:
+# Chr   Start   Ref     Read1   Read2   Read3   Read4....
+# output:
+# Chr   Start   Ref     A G C T I D Depth
+# Chr1  123124   A      sample|counts|in|+|strand-sample|counts|in|-|strand     depth|in|+|strand-depth|in|-|strand
+
 mawk '
 NR==1 {
     # get the ref-base

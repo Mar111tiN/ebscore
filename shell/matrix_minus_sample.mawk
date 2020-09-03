@@ -1,11 +1,12 @@
 #!/bin/sh
 
+# takes a position as argument and moves the data from that position to the tumor column
 mawk '
 # KEEP HEADER
 NR == 1 {
     print $0;
-    # get samplepos as bash arg
-    samplepos='"$1"';
+    # get samplepos as bash arg with default 1 for first position
+    samplepos='"${1:-1}"';
 }
 NR > 1 {
     # go through fields
@@ -30,5 +31,4 @@ NR > 1 {
         }
     }
     printf("\n");
-}
-'
+}'

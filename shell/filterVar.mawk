@@ -2,16 +2,23 @@
 
 # takes a pile2count or ABcache file with Chr Start Ref A-datacols C-data G-data T-data I-data D-data
 # and returns the columns matching the coords in mut.csv reduced to the specific Alt data
-# mpileup | cut .. | cleanpileup | pile2count2 | filterVar <mut.csv> chrom
+# mpileup | cut .. | cleanpileup | pile2count2 | filterVar <mut.csv> chrom [showDepth=0|1]
+# showDepth=0 -> do not print the last column
+# showDepth=1 -> default: show last column (usually containing depth info)
 # mut.csv must have columns: Chr Start End Ref Alt
+
+
 echo "STOP" > stop.file;
 cat $1 stop.file - | mawk '
 BEGIN {
   # INIT
+  # set the separator between Alt and Depth
+  SEP = "=";
   # read mutation file is active
   readMut = 1;
   readData = 0;
   chrom = "'$2'";
+  showDepth = "'${3:-1}'";
   step = 1; # the position counter 
 }
 # read the mut_file
@@ -53,7 +60,12 @@ writeHeader {
     for (col=0; col++<NF;) {
       COL[$col] = col;
     }
-    printf("Chr\tStart\tRef\tAlt\tData\tDepth\n");
+    printf("Chr\tStart\tEnd\tRef\tAlt\tPONAlt");
+    if (showDepth==1) {
+      printf("%sDepth\n", SEP);
+    } else {
+      printf("\n");
+    }
     next;
   } else {
     print("<filterVar> No header detected") > "/dev/stderr";
@@ -82,7 +94,12 @@ readData {
     }
     
     data = $(COL[base]);
-    printf("%s\t%s\t%s\t%s\t%s\t%s\t%s\n",$1,pos,POSEND[pos],ref,alt,data,$NF);
+    printf("%s\t%s\t%s\t%s\t%s\t%s",$1,pos,POSEND[pos],ref,alt,data);
+    if (showDepth==1) {
+      printf("%s%s\n",SEP,$NF);
+    } else {
+      printf("\n");
+    }
     # bump currentPos to next mut position
     currentPos = POS[step++];
     next;
