@@ -7,12 +7,11 @@ NR == 1 {
     SEP="=";
     BASECOLS = 5;
     for (col=0;col++<BASECOLS;) printf("%s\t",$col);
-    printf("TumorAlt%sDepth\tPONALT%sDepth\n", SEP,SEP)
+    printf("Tumor:Alt%sDepth\tPON:ALT%sDepth\n", SEP,SEP)
     # get samplepos as bash arg with default 1 for first position
     samplepos='"${1:-1}"';
 }
 NR > 1 {
-    print($0);
     # go through fields
     for (col=0;col++<BASECOLS;) printf("%s\t",$col);
     # get the data

@@ -1,8 +1,9 @@
 #!/bin/sh
 
-echo $1 | cat - $2 | awk  '
+echo $1 | cat - $2 | mawk  '
 BEGIN {
     FS="/";
+    pon="'$3'";
 }
 # print tumor bam and store basename (before _A) in pattern
 NR==1 {
@@ -13,5 +14,5 @@ NR==1 {
     next;
 }
 $0 !~ pattern {
-    print $0;
+    printf("%s/%s\n",pon,$0);
 }'

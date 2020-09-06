@@ -71,47 +71,6 @@ def matrix2EBscore(pen, row):
     return EB_score
 
 
-def AB2EBscore(row):
-    '''
-    get the EBscore from cached AB parameters
-    no fitting is needed as parameters are precomputed and stored in row[5:9]
-    '''
-
-    # set the variant to the value fitting to the matrix
-    if row['Ref'] == "-":
-        ALT = "I"
-    elif row['Alt'] == "-":
-        ALT = "D"
-    else:
-        ALT = row['Alt'].upper()
-
-    # we only get the snp count_df, using the mut_df 'Alt' as var and adjust for AB_df with column 9
-    count_series = get_target_count(row, ALT)
-    bb_params = {}
-
-    # adjust variant D-->I and d-->i because I/i is used in ABcache
-    if ALT == "D":
-        ALT = ("I")
-    # feed-in the AB params coming with the row
-    bb_params['p'] = [row[f"{ALT}+a"], row[f"{ALT}+b"]]
-    bb_params['n'] = [row[f"{ALT}-a"], row[f"{ALT}-b"]]
-
-    p_values = bb_pvalues(bb_params, count_series)
-
-    # ########### FISHER COMBINATION #########################
-    # perform Fisher's combination methods for integrating two p-values of positive and negative strands
-    EB_pvalue = fisher_combination(p_values)
-    EB_score = 0
-    if EB_pvalue < 1e-60:
-        EB_score = 60
-    elif EB_pvalue > 1.0 - 1e-10:
-        EB_score = 0
-    else:
-        EB_score = -round(math.log10(EB_pvalue), 3)
-    return EB_score
-############################################################################
-
-
 def fisher_combination(p_values):
 
     if 0 in p_values.values():
@@ -120,6 +79,25 @@ def fisher_combination(p_values):
         return 1 - chi2.cdf(sum([-2 * math.log(x) for x in p_values.values()]), 2 * len(p_values.values()))
 
 
+def bb_pvalue(params, target_df):
+    n_minus_k = target_df[0] - target_df[1]
+    # get the list of observations [n, k] to [n, n]
+    obs_list = [target_df + np.array([0, i])
+                for i in range(0, n_minus_k + 1)]
+    # get the list of loglikelihoods per observation
+    ll_list = [bb_loglikelihood(params, obs, True) for obs in obs_list]
+
+    #######################################################
+    # print(f'ab: {params}\n observations: {obs_list} ll {ll_list}\n')
+    #######################################################
+
+    # get the sum of exponentials of loglikelihoods (densities) per observation
+
+    p_value = sum([math.exp(ll) for ll in ll_list])
+
+    return p_value
+
+       
 def bb_pvalues(params, target_df):
     '''
     accumulate p_value of target observation falling in fitted bb_distribution (not a variant)
@@ -128,23 +106,7 @@ def bb_pvalues(params, target_df):
     [n, k] --> sum of density (exp of loglikelihood) [n, k] to [n, n]
     '''
 
-    def bb_pvalue(params, target_df):
-        n_minus_k = target_df[0] - target_df[1]
-        # get the list of observations [n, k] to [n, n]
-        obs_list = [target_df + np.array([0, i])
-                    for i in range(0, n_minus_k + 1)]
-        # get the list of loglikelihoods per observation
-        ll_list = [bb_loglikelihood(params, obs, True) for obs in obs_list]
 
-        #######################################################
-        # print(f'ab: {params}\n observations: {obs_list} ll {ll_list}\n')
-        #######################################################
-
-        # get the sum of exponentials of loglikelihoods (densities) per observation
-
-        p_value = sum([math.exp(ll) for ll in ll_list])
-
-        return p_value
 
     target_p = target_df.loc[['depth_p', 'mm_p']]
     target_n = target_df.loc[['depth_n', 'mm_n']]
@@ -218,6 +180,46 @@ def fit_bb(count_df, pen):
     return {'p': ab_p, 'n': ab_n}
 
 
+####################
+def AB2EBscore(row):
+    '''
+    get the EBscore from cached AB parameters
+    no fitting is needed as parameters are precomputed and stored in row[5:9]
+    '''
+
+    # set the variant to the value fitting to the matrix
+    if row['Ref'] == "-":
+        ALT = "I"
+    elif row['Alt'] == "-":
+        ALT = "D"
+    else:
+        ALT = row['Alt'].upper()
+
+    # we only get the snp count_df, using the mut_df 'Alt' as var and adjust for AB_df with column 9
+    count_series = get_target_count(row, ALT)
+    bb_params = {}
+
+    # adjust variant D-->I and d-->i because I/i is used in ABcache
+    if ALT == "D":
+        ALT = ("I")
+    # feed-in the AB params coming with the row
+    bb_params['p'] = [row[f"{ALT}+a"], row[f"{ALT}+b"]]
+    bb_params['n'] = [row[f"{ALT}-a"], row[f"{ALT}-b"]]
+
+    p_values = bb_pvalues(bb_params, count_series)
+
+    # ########### FISHER COMBINATION #########################
+    # perform Fisher's combination methods for integrating two p-values of positive and negative strands
+    EB_pvalue = fisher_combination(p_values)
+    EB_score = 0
+    if EB_pvalue < 1e-60:
+        EB_score = 60
+    elif EB_pvalue > 1.0 - 1e-10:
+        EB_score = 0
+    else:
+        EB_score = -round(math.log10(EB_pvalue), 3)
+    return EB_score
+############################################################################
 # ######################### EB-CACHE ####################
 
 def get_cache_count_df(row, var):
