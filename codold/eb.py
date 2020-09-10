@@ -13,24 +13,6 @@ def main(s):
     EBconfig = s.config['EBFilter']
     pon_list = os.path.join(static_path, EBconfig['pon_list'])
 
-    # load configs into EBconfig
-    EBconfig = {
-        "cleanpileup": "../shell/cleanpileup.mawk",
-        "makeponlist": "../shell/makeponlist.sh",
-        "csv2bed":"../shell/csv2bed.mawk",
-        "pon2cols": "../shell/pon2cols.mawk",
-        "pile2count": "../shell/pile2count2.mawk",
-        "filterVar": "../shell/filterVar.mawk",
-        "pon2tumor": "../shell/pon2tumor.mawk",
-        "pon_path": pon_path,
-        "genome_split": "/Users/mahtin/Dropbox/Icke/Work/static/genome/gatk/hg38/split",
-        "MAPQ": 20,
-        "Q": 25,
-        "fit_pen": 0.5,
-        "count_dict": {0:"alt+", 1:"alt-", 2:"depth+", 3:"depth-"}
-    }
-
-
     run_eb(
         table=s.input.table,
         tumor_bam=s.input.tumor_bam,
