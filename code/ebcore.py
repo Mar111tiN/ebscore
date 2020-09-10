@@ -79,33 +79,6 @@ def fit_bb(count_df, pen):
     return f"{ab_pos[0]}|{ab_pos[1]}-{ab_neg[0]}|{ab_neg[1]}"
 
 
-def get_count_df(pon_string, count_dict):
-    '''
-    converts the base-wise read coverage to a matrix
-    '''
-    
-    data_split = [s for ad in pon_string.split("=") for s in ad.split("-")]
-    count_df = pd.DataFrame.from_dict({dic[i]: v.split("|") for i,v in enumerate(data_split)})
-    return count_df.astype(int)
-
-
-######### AB2EB ######################
-
-def get_obs_df(target_s, cols):
-    '''
-    turn the target_s into obs_df
-    '''
-    
-    # cols is either ['depth+', 'alt+'] or ['depth-', 'alt-']
-    alt_type = cols[1]
-    # creates an observation df for each observation from depth-alt to depth-depth
-    n_minus_k = target_s[cols[0]] - target_s[alt_type]
-    # obs_df is instantiated from target_s dict with n_minus_k + 1 rows
-    obs_df = pd.DataFrame(target_s[cols].to_dict(), index=range(n_minus_k + 1))
-    # alt column is incremented using index
-    obs_df[alt_type] = obs_df[alt_type] + obs_df.index
-    return obs_df
-
 
 def bb_loglikelihood_1d(obs_row, params):
     '''
