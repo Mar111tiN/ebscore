@@ -5,9 +5,10 @@ def get_count_df(pon_string, count_dict):
     '''
     converts the base-wise read coverage to a matrix
     '''
-    
+
     data_split = [s for ad in pon_string.split("=") for s in ad.split("-")]
-    count_df = pd.DataFrame.from_dict({count_dict[i]: v.split("|") for i,v in enumerate(data_split)})
+    count_df = pd.DataFrame.from_dict(
+        {count_dict[i]: v.split("|") for i, v in enumerate(data_split)})
     return count_df.astype(int)
 
 
@@ -25,20 +26,21 @@ def retrieveABdata(row, EBconfig):
     target = row['Tumor:Alt=Depth']
     count_dict = EBconfig["count_dict"]
     target_split = [s for ad in target.split("=") for s in ad.split("-")]
-    target_s = pd.Series({count_dict[i]:v for i,v in enumerate(target_split)}).astype(int)
+    target_s = pd.Series(
+        {count_dict[i]: v for i, v in enumerate(target_split)}).astype(int)
     # params:
-    # turn string A+|B+-A-|B- into flat AB list [A+, B+, A-, B-]
+    # turn string A+|B+-A-|B- into AB dict {'+':[A+, B+], '-':[A-, B-]}
     params = row['ABparams']
     AB_list = [float(ab) for s in params.split("-") for ab in s.split("|")]
-    return target_s, AB_list
-
+    AB_dict = {'+': AB_list[:2], '-': AB_list[2:]}
+    return target_s, AB_dict
 
 
 def get_obs_df(target_s, cols):
     '''
     turn the target_s into obs_df
     '''
-    
+
     # cols is either ['depth+', 'alt+'] or ['depth-', 'alt-']
     alt_type = cols[1]
     # creates an observation df for each observation from depth-alt to depth-depth

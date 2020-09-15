@@ -41,7 +41,7 @@ def bb_loglikelihood_fitting(params, count_df, penalty):
     # Here, we apply the penalty term of alpha and beta (default 0.5 is slightly arbitray...)
     result = penalty * \
         math.log(sum(params)) - bb_loglikelihood(params,
-                                                count_df)  # matrix is dim2
+                                                 count_df)  # matrix is dim2
     return result
 
 
@@ -55,8 +55,8 @@ def minimize(strand_count_df, pen):
         bounds=[(0.1, 10000000), (1, 10000000)]
     )[0]
     return [round(param, 5) for param in ab_params]
-    
-    
+
+
 def fit_bb(count_df, pen):
     '''
     Obtaining maximum likelihood estimator of beta-binomial distribution
@@ -68,8 +68,6 @@ def fit_bb(count_df, pen):
         SIAM Journal on Scientific and Statistical Computing, 16, 5, pp. 1190-1208.
     '''
 
-
-
     # get the respective control matrices (as dataframe) for positive and negative strands
     count_pos = count_df.loc[:, ['depth+', 'alt+']]
     count_neg = count_df.loc[:, ['depth-', 'alt-']]
@@ -79,13 +77,12 @@ def fit_bb(count_df, pen):
     return f"{ab_pos[0]}|{ab_pos[1]}-{ab_neg[0]}|{ab_neg[1]}"
 
 
-
 def bb_loglikelihood_1d(obs_row, params):
     '''
     specialized 1-d version of bb_loglikelihood for p_value of targets
     copy of code is justified by omitting one if clause in the heavily used 2-d version
     '''
-    
+
     [a, b] = params
     ab_matrix = np.array([1, 1, 1, a + b, a, b, a + b, a, b])
     # convert df into matrix for np.array operations that change dims
@@ -104,15 +101,18 @@ def bb_loglikelihood_1d(obs_row, params):
 def bb_pvalue(obs_df, params):
     '''
     get the sum of exponentials of loglikelihoods (densities) per observation
+    params is strand-specific [A,B]
     '''
-    
+
     # get the loglikelihood per observation
-    obs_df['p'] = obs_df.apply(bb_loglikelihood_1d, params=params_split[2:], axis=1)
-    
+    obs_df['p'] = obs_df.apply(
+        bb_loglikelihood_1d, params=params, axis=1)
+
     # sum up the exponentials
     p_value = np.exp(obs_df['p']).sum()
 
     return p_value
+
 
 def fisher_combination(p_values):
 
