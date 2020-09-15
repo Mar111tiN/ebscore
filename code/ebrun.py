@@ -1,143 +1,77 @@
 import os
 import pandas as pd
 from os import system as shell
-from ebutils import get_pon_bases, get_sample_pos, compute_matrix2EB_multi, compute_AB2EB_multi
+from ebraw import bam2matrix
+from ebconvert import matrix2AB, AB2EBscore
 from script_utils import show_output, show_command, run_cmd
 
 
-def run_eb(table, tumor_bam, output, pon_list, chrom, log, threads, EBparams, full_output,
-           cleanpileup,
-           csv2bed,
-           pon2cols,
-           pile2count,
-           matrix2EBinput,
-           makeponlist
-           ):
+def run_ebscore(mut_file, bam_file, output_file='test.csv', pon_list='', chrom=None, EBconfig={}, debug=False):
     '''
     master function to start eb_computation
     '''
 
     # ############## LOAD DATA ###############################
-    show_output(f"Computing EBscore for chrom {chrom}", color='normal')
-
-    # get the sceleton mutation file for that chromosome
-    mut_df = pd.read_csv(table, sep='\t', index_col=False, header=None, names=[
-                         'Chr', 'Start', 'End', 'Ref', 'Alt', 'somatic_status', 'TR1', 'TR1+', 'TR2', 'TR2+', 'NR1', 'NR1+', 'NR2', 'NR2+', 'somaticP', 'variantP']).query('Chr == @chrom').iloc[:, :5]
-    mut_cols = list(mut_df.columns)
-    # set base_name for intermediate files
-    base_file = output[0].replace(".EB", "")
-
-    # ############## PILEUP --> MATRIX FILE ##################
-
-    # bed file can contain all chromosomes because chrom restriction comes with the -r parameter
-    bed_file = f"{base_file}.bed"
-    # create the bed file for mpileup
-    shell(f"{csv2bed} {table} > {bed_file}")
-
-    # # if I want to restrict chromosome in file:
-    # mut_chr_file = f"{base_file}.csv"
-    # mut_df.to_csv(mut_chr_file, sep='\t', index=False)
-    # # create the bed file for mpileup from the mutation file
-    # shell(f"{csv2bed} < {mut_chr_file} > {bed_file}")
-
-    # create the pon_list containing the tumor-bam as first file
-    sample_list = f"{base_file}.pon"
-    # makeponlist removes the sample itself from list if it is part of PoN
-    shell(f"{makeponlist} {tumor_bam} {pon_list} {sample_list}")
-
     show_output(
-        f"Piling up {chrom} of {tumor_bam} with Pon List.", color='normal')
-    shell(f"cat {sample_cat list}")
-    # do the pileup into the matrix file
-    matrix_file = f"{base_file}.matrix"
-    pileup_cmd = f"samtools mpileup -B -q {EBparams['MAPQ']} -Q {EBparams['Q']}"
-    pileup_cmd += f" -l {bed_file} -r {chrom} -b {sample_list}"
-    # cut -f $({pon2cols}< {sample_list}) creates a cut command only including the desired
+        f"Computing EBscore for chrom {chrom} on target {bam_file}", color='normal')
 
-    pipe_cmd = f"{pileup_cmd} | cut -f $({pon2cols} {sample_list}) | {cleanpileup} | {pile2count} > {matrix_file}"
-    # do the pileup to matrix_file
-    show_command(pipe_cmd, multi=False)
-    shell(pipe_cmd)
-    # cleanup
-    shell(f"rm {bed_file} {sample_list}")
+    ############### bam2matrix #######################
+    show_output(
+        f"Piling up {chrom} of {bam_file} with Pon List.", color='normal')
+    df = bam2matrix(bam_file, mut_file, chrom, pon_list, EBconfig)
+    if debug:
+        matrix_file = f"{os.path.splitext(output_file)[0]}.EBmatrix"
+        df.to_csv(matrix_file, sep='\t', index=False)
 
-    # check if matrix_file has input
-    if not os.path.getsize(matrix_file):
-        # create empty file
-        open(output[0], 'a').close()
+    cols = list(df.columns)[:5]
+    # check if matrix_df is empty
+    if df.empty:
         show_output(
-            f"Pileup for {chrom} of {tumor_bam} was empty! Created empty file {output[0]}", color='warning')
+            f"Pileup for {chrom} of {bam_file} was empty!")
+        if debug:
+            show_output(f"Created empty file {matrix_file}", color='warning')
         return
+
     # if no error:
     show_output(
-        f"Pileup matrix for chrom {chrom} of {tumor_bam} completed.", color='normal')
-    # ################ MERGE INTO MUTFILE ######################
-    # change mutation positions for deletions in mutation file
-    for col in ['Start', 'End']:
-        mut_df[col] = mut_df[col].astype(int)
-    mut_df.loc[mut_df['Alt'] == "-", 'Start'] = mut_df['Start'] - 1
-    # read matrix file into df
-    matrix_df = pd.read_csv(matrix_file, sep='\t', index_col=False)
-    # merge
-    mut_matrix = mut_df.merge(matrix_df, on=['Chr', 'Start'], how='inner')
-    # reset deletion positions
-    mut_matrix.loc[mut_matrix['Alt'] == "-",
-                   'Start'] = mut_matrix['Start'] + 1
+        f"Pileup matrix for chrom {chrom} of {bam_file} completed.", color='success')
 
-    # ####### if using matrix2EBinput.mawk #######################
-    # write to file
-    mutmatrix_file = f"{base_file}.mutmatrix"
-    mut_matrix.to_csv(mutmatrix_file, sep='\t', index=False)
-
-    # convert mutmatrix to direct EBinput
-    EB_matrix_input_file = f"{base_file}.EB.matrix"
-    shell(f"cat {mutmatrix_file} | {matrix2EBinput} > {EB_matrix_input_file}")
-
-    # load in the EB.matrix file
-    eb_matrix = pd.read_csv(EB_matrix_input_file, sep='\t')
+    # ############## matrix2AB ######################
+    show_output(
+        f"Computing ABparams from PoN data on {chrom}.", color='normal')
+    df['ABparams'] = df.apply(matrix2AB, config=EBconfig, axis=1)
+    show_output(
+        f"Computing ABparams finished.", color='success')
+    if debug:
+        AB_file = f"{os.path.splitext(output_file)[0]}.AB"
+        df.to_csv(AB_file, sep='\t', index=False)
 
     # multithreaded computation
-    EB_df = compute_matrix2EB_multi(
-        eb_matrix, EBparams['fitting_penalty'], threads)
+    # EB_df = compute_matrix2EB_multi(
+    #     eb_matrix, EBparams['fitting_penalty'], threads)
 
+    # ############# AB2EB ##########################
+    df['EBscore'] = df.apply(AB2EBscore, config=EBconfig, axis=1)
     # add EBscore to columns
-    mut_cols.append('EBscore')
+    cols.append('EBscore')
 
-    # get the pon_matrix containing the Pon coverages in Alt and Ref
-    pon_matrix = get_pon_bases(eb_matrix)
-    # transfer PoN-Ref and PoN-Alt to EB_df
-    EB_df[['PoN-Ref', 'PoN-Alt']] = pon_matrix[['PoN-Ref', 'PoN-Alt']]
-    mut_cols += ['PoN-Ref', 'PoN-Alt']
+    # copy PON:ALT=Depth into separate columns
+    df[['PonAlt', 'PonDepth']] = df['PON:ALT=Depth'].str.split(
+        '=', expand=True)
+    cols += ['PonDepth', 'PonAlt']
 
-    # ###### add the full output ##########
-    if full_output:
-        # condense base info
-        print('full_output')
-        base_cols = list("AaGgCcTtIiDd")
-        col_name = "|".join(base_cols)
-        # convert base coverage to str
-        for ch in base_cols:
-            # take the letter info from the mut_matrix which is not yet condensated
-            # str.replace removes the tumor bases
-            EB_df[ch] = mut_matrix[ch].map(
-                str).str.replace(r'^[0-9]+\|', "")
-        # condense base info into col "A|a|G|g|C|c|T|t|I|i|D|d"
-        EB_df[col_name] = EB_df[base_cols].apply(
-            lambda row: "-".join(row), axis=1)
-        # add "A|a|G|g|C|c|T|t|I|i|D|d" to columns
-        mut_cols.append(col_name)
     # rm unnecessary columns
-    EB_df = EB_df[mut_cols]
+    EB_df = df[cols]
 
     # ######### WRITE TO FILE ##############################################
 
-    EB_file = output[0]
-    EB_df.to_csv(EB_file, sep='\t', index=False)
+    EB_df.to_csv(output_file, sep='\t', index=False)
 
     # cleanup
-    shell(f"rm {matrix_file} {EB_matrix_input_file}")  # {mutmatrix_file}
+    # shell(f"rm {matrix_file} {EB_matrix_input_file}")  # {mutmatrix_file}
     show_output(
-        f"Created EBscore for chrom {chrom} of {tumor_bam} and written to {output[0]}", color='success')
+        f"Created EBscore for chrom {chrom} of {bam_file} and written to {output_file}", color='success')
+    return EB_df
 
 
 def run_eb_from_cache(table, tumor_bam, output, pon_list, chrom, log, threads, EBparams, full_output,
