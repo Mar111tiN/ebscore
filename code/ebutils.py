@@ -1,5 +1,5 @@
 import pandas as pd
-
+import os
 
 def get_pon(bam_file, pon_list, pon_path='', prepend_bam=False):
     '''
@@ -7,7 +7,7 @@ def get_pon(bam_file, pon_list, pon_path='', prepend_bam=False):
     returns reduced pon_list and the matching 1-based position in the pon_list
     '''
     # get the stripped sample name
-    sample_base = bam_file.replace('.bam', '').split('_')[0].lstrip("0")
+    sample_base = os.path.basename(bam_file).replace('.bam', '').split('_')[0].lstrip("0")
     # pon path is not "", add a backslash
     if pon_path:
         pon_path += "/"

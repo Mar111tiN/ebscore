@@ -40,7 +40,8 @@ def bam2matrix(bam_file, mut_file, chrom, pon_list, EBconfig):
     if pos:
         show_output(
             f"{removed_ponbam} matches target bam {bam_file} and is removed from pon_list. If not desired, change names in PoN", color="warning")
-
+    print(pon_df)
+    
     pon_df.to_csv(pon_bam, index=False, header=None)
 
     pileup_cmd = f"samtools mpileup -Q {Q} -q {q} -l {bed_file} -f {gsplit}/{chrom}.fa -b {pon_bam} -r {chrom}"
