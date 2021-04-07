@@ -138,9 +138,10 @@ writeHeader { #@stream header
         for (col=0; col++<NF;) {
         COL[$col] = col;
         }
-        printf("Chr\tStart\tEnd\tRef\tAlt\tTumor:Alt=Depth\tPON:Alt=Depth\n");
+        printf("Chr\tStart\tEnd\tRef\tAlt\tTumor\tPON\n");
         ########
-        printf("stdinBase\tstdinDepth\tPONData\tPONdepth\n");
+        # printf("Chr\tStart\tEnd\tRef\tAlt\tTumor:Alt=Depth\tPON:Alt=Depth\n");
+        # printf("stdinBase\tstdinDepth\tPONData\tPONdepth\n");
         ########
         next;
     } else {
@@ -304,8 +305,10 @@ readData { #@ stream data
 
     ############# get the pileup data from pileup file ###
 
+    ###### DEBUG ##############
+    # printf("%s\t%s\t%s\t%s\n",streamData, streamDepth, PONdata, PONdepth);
+    ###### DEBUG ##############
 
-    printf("%s\t%s\t%s\t%s\n",streamData, streamDepth, PONdata, PONdepth);
     if (currentPOS == lastPos) exit;
     # bump currentPos to next mut position
     currentPOS = POS[++step];
