@@ -54,6 +54,7 @@ def tumor2matrix(mut_file, bam="", pileup="", pon_list="", chrom="", EBconfig={}
     pon_df, pos, removed_ponbam = get_pon(
         tumor_file, pon_list, pon_path=pon_path, prepend_bam=True
     )
+
     if pos:
         show_output(
             f"{removed_ponbam} from PON list matches {tumor_file} and is removed from pon_list. If not desired, change names",
