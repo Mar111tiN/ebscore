@@ -61,11 +61,14 @@ def PONmatrix2AB_row(row, pen=0.5):
 
 
 def PONmatrix2AB(config, matrix_df):
+    finished_line = matrix_df.iloc[0].name + config['chunk_size']
+    percent = round(finished_line / config['len'] * 100, 1)
     df = matrix_df.apply(PONmatrix2AB_row, pen=config["fit_pen"], axis=1)
+    show_output(f"{finished_line} of {config['len']} lines ({percent}%) finished!", multi=True, time=True)
     return df
 
 
-def PONmatrix2AB_multi(pon_matrix_df, config={"fit_pen": 0.5, "threads": 8}):
+def PONmatrix2AB_multi(pon_matrix_df, config={"fit_pen": 0.5, "threads": 8, "chunk_size": 50000}):
     """
     converts a PONmatrix into a PONAB file
     """
@@ -74,8 +77,12 @@ def PONmatrix2AB_multi(pon_matrix_df, config={"fit_pen": 0.5, "threads": 8}):
 
     pool = Pool(threads)
 
+    pon_len = len(pon_matrix_df.index)
+    config['len'] = pon_len
     # minimal length of 200 lines
-    split_factor = min(math.ceil(len(pon_matrix_df.index) / 200), threads)
+    # split_factor = min(math.ceil(len(pon_matrix_df.index) / 200), threads)
+    split_factor = math.ceil(pon_len / config['chunk_size'])
+    # split the matrix
     split = np.array_split(pon_matrix_df, split_factor)
     dfs = pool.map(partial(PONmatrix2AB, config), split)
 

@@ -138,7 +138,7 @@ writeHeader { #@stream header
         for (col=0; col++<NF;) {
         COL[$col] = col;
         }
-        printf("Chr\tStart\tEnd\tRef\tAlt\tTumor\tPON\n");
+        printf("Chr\tStart\tEnd\tRef\tAlt\tTumor\tPONpos\tPONeg\n");
         ########
         # printf("Chr\tStart\tEnd\tRef\tAlt\tTumor:Alt=Depth\tPON:Alt=Depth\n");
         # printf("stdinBase\tstdinDepth\tPONData\tPONdepth\n");
@@ -197,7 +197,7 @@ readData { #@ stream data
                 printf("%s%s%s\t", streamData, SEP, streamDepth);
                 PONdata = $(COL[altBase]);
                 PONdepth = $NF; 
-                if (PONexclude) {  #  
+                if (PONexclude) {  #
                     # split the PONData and PONdepth into SData array and retrieve the tumor data
                     split(PONdata, pdata, "-");
                     split(PONdepth, pdepth, "-");
@@ -224,9 +224,10 @@ readData { #@ stream data
                     ####### DEBUG ###########
 
                     ##### OUTPUT ################
-                    ponData="";
-                    ponDepth="";
+
                     for (strand=0; strand++<2;) {
+                        ponData="";
+                        ponDepth="";
                         # start with 1 because array[1]  is already printed
                         for (pon=0;pon++<ponCount-1;) {
                             ponData = ponData PDATA[strand "-" pon];
@@ -235,16 +236,15 @@ readData { #@ stream data
                                 ponData = ponData "|";
                                 ponDepth = ponDepth "|";
                             } else {
-                                if (strand == 1) {
-                                    ponData = ponData "-";
-                                    ponDepth = ponDepth "-";                                   
-                                }
+                                STRAND[strand] = ponData SEP ponDepth;
                             }
                         }
                     }
-                    printf("%s%s%s\n", ponData, SEP, ponDepth);
+                    printf("%s\t%s\n", STRAND[1], STRAND[2]);
                 } else {
-                    printf("%s%s%s\n", PONdata, SEP, PONdepth);
+                    split(PONdata, A, "-");
+                    split(PONdepth, D, "-");
+                    printf("%s%s%s\t%s%s%s\n", A[1], SEP, D[1], A[2], SEP, D[2]);
                 }
                 break;
             }
@@ -281,9 +281,9 @@ readData { #@ stream data
         printf("%s-%s%s%s-%s\t", SDATA["1-1"], SDATA["2-1"], SEP, SDEPTH["1-1"], SDEPTH["2-1"]);
 
         # output the rest
-        ponData="";
-        ponDepth="";
         for (strand=0; strand++<2;) {
+            ponData="";
+            ponDepth="";
             # start with 1 because array[1]  is already printed
             for (pon=1;pon++<ponCount;) {
                 ponData = ponData SDATA[strand "-" pon];
@@ -292,15 +292,12 @@ readData { #@ stream data
                     ponData = ponData "|";
                     ponDepth = ponDepth "|";
                 } else {
-                    if (strand == 1) {
-                        ponData = ponData "-";
-                        ponDepth = ponDepth "-";
-                    }
+                    STRAND[strand] = ponData SEP ponDepth;
                 }
             }
 
         }
-        printf("%s%s%s\n", ponData, SEP, ponDepth);
+        printf("%s\t%s\n", STRAND[1], STRAND[2]);
     }
 
     ############# get the pileup data from pileup file ###
