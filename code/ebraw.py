@@ -4,7 +4,7 @@ import os
 import sys
 from subprocess import PIPE, run
 from ebutils import get_pon
-from script_utils import show_output, show_command
+from script_utils import show_output, show_command, run_cmd
 
 # here come all the functions involved in converting raw data (bam or pileup) to dataframes
 
@@ -23,15 +23,26 @@ def tumor2matrix(mut_file, bam="", pileup="", pon_list="", chrom="", EBconfig={}
     pon_path = EBconfig["pon_path"]
     q = EBconfig["MAPQ"]
     Q = EBconfig["Q"]
+    base_name = os.path.splitext(os.path.basename(mut_file))[0]
     use_cache = EBconfig["use_cache"]
+    # check the temp_folder with default pon_path/temp
+    temp_folder = EBconfig.get("temp_dir", os.path.join(pon_path, "temp"))
+    if not os.path.isdir(temp_folder):
+        os.mkdir(temp_folder)
 
     if bam:
         tumor_file = bam
         tumor_type = "bam"
         # create the bed file needed for pileup from bam-file
         # could be pythonized
-        bed_file = f"{os.path.splitext(mut_file)[0]}_{chrom}.bed"
-        run(f"{mawk('csv2bed')} {mut_file} > {bed_file}", check=True, shell=True)
+        bed_file = os.path.join(
+            temp_folder,
+            f"{base_name}_{chrom}.bed",
+        )
+        run(
+            f"{mawk('csv2bed')} {mut_file} {chrom} > {bed_file}", check=True, shell=True
+        )
+        # run(f"{mawk('csv2bed')} {mut_file} > {bed_file}", check=True, shell=True)
         tumor_cmd = f"samtools mpileup -Q {Q} -q {q} -l {bed_file} -f {gsplit}/{chrom}.fa -r {chrom}"
     else:
         if pileup:
@@ -95,7 +106,7 @@ def tumor2matrix(mut_file, bam="", pileup="", pon_list="", chrom="", EBconfig={}
     else:
         if tumor_type == "bam":
             # make filename for pon_bam
-            pon_bam = f"{os.path.splitext(mut_file)[0]}_{chrom}.pon"
+            pon_bam = os.path.join(temp_folder, f"{base_name}_{chrom}.pon")
             pon_df.to_csv(pon_bam, index=False, header=None)
             tumor_cmd += f" -b {pon_bam} | {mawk('cleanpileup')}"
         else:

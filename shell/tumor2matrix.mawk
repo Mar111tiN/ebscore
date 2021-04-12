@@ -152,21 +152,23 @@ readData { #@ stream data
     pos=$2;
     # data is between last and currentPOS
     if (pos < currentPOS) next;
+
+    # get the Ref and Alt from the arrays
+    ref = POSREF[pos];
+    alt = POSALT[pos];
+    ### ########### BASE OUTPUT  ################
+    printf("%s\t%s\t%s\t%s\t%s\t",$1,pos,POSEND[pos],ref,alt);
     # data for currentPOS is missing and moved past currentPOS
     if (pos > currentPOS) {
         # moved past the last POS
         if (pos > lastPos) exit;
+        
         # go to next position in POS ARRAY
         currentPOS = POS[++step];
-        next;
     }
     # @found stream data matching currentPOS:
     # print data at matching positions 
     # get the right stream column depending on POSALT
-    # get the Ref and Alt from the arrays
-    ref = POSREF[pos];
-    alt = POSALT[pos];
-
     # modify altBase for Indels
     if (ref == "-") {
         altBase = "I";
@@ -180,8 +182,7 @@ readData { #@ stream data
         }
     } 
 
-    ### ########### BASE OUTPUT  ################
-    printf("%s\t%s\t%s\t%s\t%s\t",$1,pos,POSEND[pos],ref,alt);
+
     
     # store the streamData and Depth
     streamData = $(COL[altBase]);
