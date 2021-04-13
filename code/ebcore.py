@@ -1,7 +1,6 @@
 import pandas as pd
 import numpy as np
 import math
-from functools import partial
 from scipy.optimize import fmin_l_bfgs_b as minimize_func
 from scipy.stats import chi2
 from scipy.special import gammaln
@@ -20,12 +19,17 @@ def bb_loglikelihood(params, count_matrix):
 
     # perform matrix multiplication to get inputs to log-gamma
     input_matrix = np.matmul(count_matrix, KS_matrix) + ab_matrix
+
     # get corresponding log-gamma values and reduce over pon-values
-    # make sure, count_df is 2d to safe the check
-    # if is_1d:  # check whether gammatrix is 2-dim - otherwise sum aggregation over axis 0 is faulty
-    #     gamma_matrix = gammaln(input_matrix)
-    # else:
-    gamma_matrix = np.sum(gammaln(input_matrix), axis=0)
+    # if count_matrix is 2d (from fitting), gammas have to be summed up
+    # if count_matrix is 1d (shape == (2,))  only use the one gamma
+
+    gamma_matrix = (
+        gammaln(input_matrix)
+        if (count_matrix.shape == (2,))
+        else np.sum(gammaln(input_matrix), axis=0)
+    )
+
     # add or subtract using gamma_reduce matrix and sum to loglikelihood (scalar)
     log_likelihood = np.sum(gamma_matrix * gamma_reduce)
     return log_likelihood
@@ -68,48 +72,17 @@ def fit_bb(count_matrix, pen=0.5):
     return "|".join([str(round(param, 5)) for param in ab_params])
 
 
-def bb_loglikelihood_1d(obs_row, params):
-    """
-    specialized 1-d version of bb_loglikelihood for p_value of targets
-    copy of code is justified by omitting one if clause in the heavily used 2-d version
-    """
-
-    [a, b] = params
-    ab_matrix = np.array([1, 1, 1, a + b, a, b, a + b, a, b])
-    # convert df into matrix for np.array operations that change dims
-    count_matrix = obs_row.values
-    # perform matrix multiplication to get inputs to log-gamma
-    input_matrix = np.matmul(count_matrix, KS_matrix) + ab_matrix
-    # get corresponding log-gamma values and reduce over pon-values
-    gamma_matrix = gammaln(input_matrix)
-    # else:
-    # gamma_matrix = np.sum(gammaln(input_matrix), axis=0)
-    # add or subtract using gamma_reduce matrix and sum to loglikelihood (scalar)
-    log_likelihood = np.sum(gamma_matrix * gamma_reduce)
-    return log_likelihood
-
-
-def bb_pvalue(obs_df, params):
+def bb_pvalue(obs_array, AB_params):
     """
     get the sum of exponentials of loglikelihoods (densities) per observation
-    params is strand-specific [A,B]
+    params is [A,B] pair
     """
-
-    # get the loglikelihood per observation
-    obs_df["p"] = obs_df.apply(bb_loglikelihood_1d, params=params, axis=1)
-
-    # sum up the exponentials
-    p_value = np.exp(obs_df["p"]).sum()
-
-    return p_value
+    return np.exp([bb_loglikelihood(AB_params, obs) for obs in obs_array]).sum()
 
 
 def fisher_combination(p_values):
 
-    if 0 in p_values.values():
+    if 0 in p_values:
         return 0
     else:
-        return 1 - chi2.cdf(
-            sum([-2 * math.log(x) for x in p_values.values()]),
-            2 * len(p_values.values()),
-        )
+        return 1 - chi2.cdf(sum([-2 * math.log(p) for p in p_values]), 4)
