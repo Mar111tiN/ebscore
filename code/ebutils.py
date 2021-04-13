@@ -2,11 +2,65 @@ import pandas as pd
 import os
 
 
-def get_zero_df(stack_df, zero_string="0|0|0|0|0"):
+def extract_zero_df(stack_df, zero_string="0|0|0|0|0"):
     zero_df = stack_df.loc[stack_df["T"] == zero_string, ["D", "AB"]].drop_duplicates(
         "D"
     )
     return zero_df
+
+
+def load_zero_df(zero_path):
+    """
+    looks into zero_path and gets the previous zero_files into one df
+    """
+
+    # get all the zero files
+    zero_files = [
+        file
+        for file in os.listdir(zero_path)
+        if os.path.isfile(os.path.join(zero_path, file))
+    ]
+    # get the numbers of the files
+    file_counter = sorted(
+        [int(f.replace("zero.", "").replace(".csv", "")) for f in zero_files]
+    )
+    print(file_counter)
+    load_file_counter = file_counter[-4:-2]
+    if not len(load_file_counter):
+        load_file_counter = file_counter[-2:-1]
+        if not len(load_file_counter):
+            # if nothing is there, load the zero.0.csv
+            load_file_counter = [0]
+    load_files = [os.path.join(zero_path, f"zero.{i}.csv") for i in load_file_counter]
+    zero_dfs = []
+    for f in load_files:
+        if os.path.isfile(f):
+            print(f)
+            zero_df = pd.read_csv(f, sep="\t")
+            zero_dfs.append(zero_df)
+    if len(zero_dfs):
+        zero_df = pd.concat(zero_dfs).drop_duplicates("D")
+    else:
+        return None
+    return zero_df
+
+
+def get_next_zero(zero_path):
+    # get all the zero files
+    zero_files = [
+        file
+        for file in os.listdir(zero_path)
+        if os.path.isfile(os.path.join(zero_path, file))
+    ]
+    # get the numbers of the files
+    file_counter = sorted(
+        [int(f.replace("zero.", "").replace(".csv", "")) for f in zero_files]
+    )
+    if len(load_file_counter):
+        next_file_count = file_counter[-1]
+    else:
+        next_file_count = 0
+    return os.path.join(zero_path, f"zero.{next_file_count}.csv")
 
 
 def get_pon_df(pon_list, pon_path):

@@ -4,7 +4,9 @@ import math
 import os
 
 from script_utils import show_output
-from ebutils import retrieveABdata, get_obs_df, get_zero_df
+
+from ebutils import retrieveABdata, get_obs_df
+from zerocache import extract_zero_df, load_zero_df, get_next_zero
 from ebcore import fit_bb, bb_pvalue, fisher_combination
 
 ### matrix to AB
@@ -41,11 +43,11 @@ def matrix2AB(config, matrix_df):
     )
 
     # load the zero_df
-    zero_file = config["zero_file"]
-    if os.path.isfile(zero_file):
-        zero_df = pd.read_csv(zero_file, sep="\t")
-        while zero_df.empty:
-            zero_df = pd.read_csv(zero_file, sep="\t")
+    zero_path = config["zero_file"]
+    if not os.path.isdir(zero_path):
+        os.makedirs(zero_path)
+
+    zero_df, _ = load_zero_df(zero_path)
         # merge the AB params from the zero_df
         matrix_df = matrix_df.merge(zero_df, how="left")
 
