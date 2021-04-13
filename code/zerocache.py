@@ -89,5 +89,6 @@ def collapse_zeros(zero_path):
         zdfs.append(pd.read_csv(file, sep="\t"))
         os.remove(file)
     zero_df = pd.concat(zdfs).drop_duplicates("D").sort_values("D")
+
     zero_df.to_csv(os.path.join(zero_path, "zero.0.csv"), sep="\t", index=False)
     return zero_df

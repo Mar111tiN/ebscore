@@ -6,7 +6,7 @@ from multiprocessing import Pool
 from functools import partial
 
 from script_utils import show_output
-from ebcore import fit_bb, bb_pvalue, fisher_combination
+from ebcore import bb_pvalue, fisher_combination
 
 
 def get_obs_df(target_s, cols):

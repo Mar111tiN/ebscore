@@ -8,7 +8,7 @@ from functools import partial
 from script_utils import show_output
 
 from zerocache import extract_zero_df, load_zero_df, get_next_zero
-from ebcore import fit_bb, bb_pvalue, fisher_combination
+from ebcore import fit_bb
 
 ### matrix to AB
 def matrix2AB_row(row, pen=0.5):
@@ -78,17 +78,27 @@ def matrix2AB(config, matrix_df):
     # get all the new zeros and merge with zero_df and write to file
 
     # here comes the zero_file update
-    zero_df = extract_zero_df(matrix_df, zero_string="0|0|0|0|0")
-    # reload the current zero_df (could be updated in between)
+    updated_zero_df = extract_zero_df(matrix_df, zero_string="0|0|0|0|0")
 
+    # reload the current zero_df (could be updated in between)
     old_zero_df = load_zero_df(zero_path)
-    if old_zero_df is not None:
-        zero_df = pd.concat([zero_df, old_zero_df]).drop_duplicates("D")
-    # write to new zero
-    zero_file = get_next_zero(zero_path)
-    zero_df.to_csv(zero_file, sep="\t", index=False)
+
+    if old_zero_df is None:
+        # count the number of lines from previous zero_df
+        old_lines = 0
+    else:
+        old_lines = len(old_zero_df.index)
+        updated_zero_df = pd.concat([updated_zero_df, old_zero_df]).drop_duplicates("D")
+
+    if len(zero_df.index) > old_lines:
+        # write to new zero
+        zero_file = get_next_zero(zero_path)
+        zero_df.to_csv(zero_file, sep="\t", index=False)
+        show_output(
+            f"Saving updated zero cache to {os.path.basename(zero_file)}", multi=True
+        )
     show_output(
-        f"Finished! Saving latest zero cache to {os.path.basename(zero_file)}",
+        f"AB computation finished",
         multi=True,
         color="success",
     )
