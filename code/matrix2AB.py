@@ -7,7 +7,6 @@ from functools import partial
 
 from script_utils import show_output
 
-from ebutils import retrieveABdata, get_obs_df
 from zerocache import extract_zero_df, load_zero_df, get_next_zero
 from ebcore import fit_bb, bb_pvalue, fisher_combination
 
@@ -163,26 +162,3 @@ def matrix2AB_multi(
     AB_df = unstackAB(pd.concat(dfs).reset_index(drop=True))
     show_output(f"matrix successfully converted!", color="success")
     return AB_df
-
-
-######### EB2AB ######################
-
-
-def AB2EBscore(row):
-    """
-    takes a df containing an AB column of shape "A+|A--B+|B-""
-    """
-    # retrieve the data from the row
-    target_s, AB_dict = retrieveABdata(row)
-
-    # get the p_values for each strand
-    p_values = {}
-    p_values["+"] = bb_pvalue(get_obs_df(target_s, ["depth+", "alt+"]), AB_dict["+"])
-    p_values["-"] = bb_pvalue(get_obs_df(target_s, ["depth-", "alt-"]), AB_dict["-"])
-    # combine p_values with fisher combination
-    EB_p = fisher_combination(p_values)
-    if EB_p < 1e-60:
-        return 60
-    if EB_p > 1.0 - 1e-10:
-        return 0
-    return -round(math.log10(EB_p), 3)

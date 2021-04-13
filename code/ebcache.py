@@ -8,7 +8,7 @@ import pandas as pd
 from ebcore import fit_bb
 from ebutils import get_pon_df
 from script_utils import show_output, run_cmd
-from ebconvert import matrix2AB
+from matrix2AB import matrix2AB
 
 
 def PON2matrix(pon_list, chrom, EBconfig={}):
