@@ -2,6 +2,13 @@ import pandas as pd
 import os
 
 
+def get_zero_df(stack_df, zero_string="0|0|0|0|0"):
+    zero_df = stack_df.loc[stack_df["T"] == zero_string, ["D", "AB"]].drop_duplicates(
+        "D"
+    )
+    return zero_df
+
+
 def get_pon_df(pon_list, pon_path):
     """
     complete the pon_list to a full_path pon_list
@@ -49,20 +56,6 @@ def get_pon(file, pon_list, pon_path="", prepend_bam=False):
     pos = pon_df.query("sample == @sample_base").index[0] + 1 - int(prepend_bam)
     removed_pon = pon_df.query("sample == @sample_base").iloc[0]["basename"]
     return reduced_pon_df, pos, removed_pon
-
-
-def get_count_df(pon_string):
-    """
-    converts the base-wise read coverage to a matrix
-    """
-
-    count_dict = {0: "alt+", 1: "alt-", 2: "depth+", 3: "depth-"}
-
-    data_split = [s for ad in pon_string.split("=") for s in ad.split("-")]
-    count_df = pd.DataFrame.from_dict(
-        {count_dict[i]: v.split("|") for i, v in enumerate(data_split)}
-    )
-    return count_df.astype(int)
 
 
 ######### AB2EB ######################

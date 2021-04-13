@@ -138,7 +138,7 @@ writeHeader { #@stream header
         for (col=0; col++<NF;) {
         COL[$col] = col;
         }
-        printf("Chr\tStart\tEnd\tRef\tAlt\tTumor\tPONpos\tPONeg\n");
+        printf("Chr\tStart\tEnd\tRef\tAlt\tTumor\tPON+\tPON-\n");
         ########
         # printf("Chr\tStart\tEnd\tRef\tAlt\tTumor:Alt=Depth\tPON:Alt=Depth\n");
         # printf("stdinBase\tstdinDepth\tPONData\tPONdepth\n");

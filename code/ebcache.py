@@ -6,8 +6,9 @@ import numpy as np
 import pandas as pd
 
 from ebcore import fit_bb
-from ebutils import get_count_df, get_pon_df
+from ebutils import get_pon_df, get_zero_df
 from script_utils import show_output, run_cmd
+from ebconvert import matrix2AB
 
 
 def PON2matrix(pon_list, chrom, EBconfig={}):
@@ -52,32 +53,63 @@ def PON2matrix(pon_list, chrom, EBconfig={}):
     return pon_matrix_file
 
 
-##############   convert PONmatrix to PON AB
-
-
-def PONmatrix2AB_row(row, pen=0.5):
-    for base in "AGCTID":
-        row[base] = fit_bb(
-            get_count_df(row[base] + "=" + row["Depth"]),
-            pen,
-        )
-    return row.loc[["Chr", "Start", "Ref"] + list("AGCTID")]
-
-
-def PONmatrix2AB(config, matrix_df):
-    finished_line = matrix_df.iloc[0].name + config["chunk_size"]
-    percent = round(finished_line / config["len"] * 100, 1)
-    df = matrix_df.apply(PONmatrix2AB_row, pen=config["fit_pen"], axis=1)
-    show_output(
-        f"{finished_line} of {config['len']} lines ({percent}%) finished!",
-        multi=True,
-        time=True,
+def tidyPONmatrix(PON_df):
+    """
+    converts the PON matrix into stacked version for easy computation
+    all string operations are performed here
+    """
+    # stack the letters
+    df = (
+        PON_df.set_index(["Chr", "Start", "Ref", "Depth"])
+        .stack()
+        .reset_index()
+        .rename({"level_4": "Alt", 0: "tumor"}, axis=1)
     )
-    return df
+    # split left and right
+    df[["DL", "DR"]] = df["Depth"].str.split("-", expand=True)
+    df[["TL", "TR"]] = df["tumor"].str.split("-", expand=True)
+    df["L"] = df["TL"] + "=" + df["DL"]
+    df["R"] = df["TR"] + "=" + df["DR"]
+    # stack left and right
+    df = (
+        df.loc[:, ["Chr", "Start", "Ref", "Alt", "L", "R"]]
+        .set_index(["Chr", "Start", "Ref", "Alt"])
+        .stack()
+        .reset_index()
+        .rename({"level_4": "strand", 0: "PON"}, axis=1)
+    )
+    df[["T", "D"]] = df["PON"].str.split("=", expand=True)
+    return df.loc[:, ["Chr", "Start", "Ref", "Alt", "strand", "T", "D"]]
+
+
+def unstack_PONAB(stack_df):
+    un1 = (
+        stack_df.loc[:, ["Chr", "Start", "Ref", "Alt", "strand", "AB"]]
+        .set_index(["Chr", "Start", "Ref", "Alt", "strand"])
+        .unstack("strand")["AB"]
+    )
+    un1["AB"] = un1["L"] + "=" + un1["R"]
+    return (
+        un1.loc[:, "AB"]
+        .unstack("Alt")
+        .reset_index(drop=False)
+        .sort_values(
+            [
+                "Chr",
+                "Start",
+            ]
+        )
+    )
 
 
 def PONmatrix2AB_multi(
-    pon_matrix_df, config={"fit_pen": 0.5, "threads": 8, "chunk_size": 50000}
+    pon_matrix_df,
+    config={
+        "fit_pen": 0.5,
+        "threads": 8,
+        "chunk_size": 50000,
+        "zero_file": "zero.csv",
+    },
 ):
     """
     converts a PONmatrix into a PONAB file
@@ -87,15 +119,21 @@ def PONmatrix2AB_multi(
 
     pool = Pool(threads)
 
-    pon_len = len(pon_matrix_df.index)
+    # tidy the pon_matrix_df
+    stack_df = tidyPONmatrix(pon_matrix_df)
+    show_output(f"Stacked")
+
+    pon_len = len(stack_df.index)
+
     config["len"] = pon_len
     # minimal length of 200 lines
     # split_factor = min(math.ceil(len(pon_matrix_df.index) / 200), threads)
     split_factor = math.ceil(pon_len / config["chunk_size"])
     # split the matrix
-    split = np.array_split(pon_matrix_df, split_factor)
-    dfs = pool.imap(partial(PONmatrix2AB, config), split)
+    split = np.array_split(stack_df, split_factor)
+    dfs = pool.imap(partial(matrix2AB, config), split)
     pool.close()
-    # out_df contains EB_score
-    out_df = pd.concat(dfs).sort_values(["Chr", "Start"])
-    return out_df
+    # out_df contains AB params
+    pon_AB_df = unstack_PONAB(pd.concat(dfs))
+
+    return pon_AB_df
