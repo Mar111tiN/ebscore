@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 from ebcore import fit_bb
-from ebutils import get_pon_df, get_zero_df
+from ebutils import get_pon_df
 from script_utils import show_output, run_cmd
 from ebconvert import matrix2AB
 
@@ -53,7 +53,7 @@ def PON2matrix(pon_list, chrom, EBconfig={}):
     return pon_matrix_file
 
 
-def tidyPONmatrix(PON_df):
+def stackPONmatrix(PON_df):
     """
     converts the PON matrix into stacked version for easy computation
     all string operations are performed here
@@ -90,15 +90,7 @@ def unstack_PONAB(stack_df):
     )
     un1["AB"] = un1["L"] + "=" + un1["R"]
     return (
-        un1.loc[:, "AB"]
-        .unstack("Alt")
-        .reset_index(drop=False)
-        .sort_values(
-            [
-                "Chr",
-                "Start",
-            ]
-        )
+        un1.loc[:, "AB"].unstack("Alt").reset_index(drop=False).sort_values(["Start"])
     )
 
 
@@ -108,7 +100,7 @@ def PONmatrix2AB_multi(
         "fit_pen": 0.5,
         "threads": 8,
         "chunk_size": 50000,
-        "zero_file": "zero.csv",
+        "zero_path": "zero",
     },
 ):
     """
@@ -118,10 +110,10 @@ def PONmatrix2AB_multi(
     threads = config["threads"]
 
     pool = Pool(threads)
-
+    show_output(f"Starting AB conversion of PON matrix using {threads} cores")
     # tidy the pon_matrix_df
-    stack_df = tidyPONmatrix(pon_matrix_df)
-    show_output(f"Stacked")
+    stack_df = stackPONmatrix(pon_matrix_df)
+    show_output(f"PON matrix is stacked")
 
     pon_len = len(stack_df.index)
 
@@ -134,6 +126,6 @@ def PONmatrix2AB_multi(
     dfs = pool.imap(partial(matrix2AB, config), split)
     pool.close()
     # out_df contains AB params
-    pon_AB_df = unstack_PONAB(pd.concat(dfs))
-
+    pon_AB_df = unstack_PONAB(pd.concat(dfs).reset_index(drop=True))
+    show_output(f"PON matrix successfully converted!", color="success")
     return pon_AB_df
