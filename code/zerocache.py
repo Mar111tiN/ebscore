@@ -1,5 +1,6 @@
 import pandas as pd
 import os
+import numpy as np
 
 
 def extract_zero_df(stack_df, zero_string="0|0|0|0|0"):
@@ -73,7 +74,29 @@ def get_next_zero(zero_path):
     return os.path.join(zero_path, f"zero.{next_file_count}.csv")
 
 
-def collapse_zeros(zero_path):
+def flatten_zeros(col, zero_condense_factor=13):
+    return col.str.split("|").apply(
+        lambda li: "|".join(
+            np.round(
+                np.exp(
+                    np.round(
+                        (
+                            np.log(np.sort(np.array(li).astype(int)))
+                            * zero_condense_factor
+                        ),
+                        0,
+                    )
+                    / zero_condense_factor
+                ),
+                0,
+            )
+            .astype(int)
+            .astype(str)
+        )
+    )
+
+
+def collapse_zeros(zero_path, zero_condense_factor=13):
     """
     reduces all zero_files to zero.0.csv
     """
@@ -88,7 +111,14 @@ def collapse_zeros(zero_path):
         print(file)
         zdfs.append(pd.read_csv(file, sep="\t"))
         os.remove(file)
-    zero_df = pd.concat(zdfs).drop_duplicates("D").sort_values("D")
+    # concat and drop duplicates
+    zero_df = pd.concat(zdfs).drop_duplicates("D")
+    # reduce complexity using condense factor
+    zero_df.loc[:, "D"] = flatten_zeros(
+        zero_df["D"], zero_condense_factor=zero_condense_factor
+    )
+
+    zero_df = zero_df.drop_duplicates("D").sort_values("D")
 
     zero_df.to_csv(os.path.join(zero_path, "zero.0.csv"), sep="\t", index=False)
     return zero_df

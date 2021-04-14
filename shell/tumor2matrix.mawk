@@ -3,7 +3,7 @@
 # filterEB v1.2
 # takes a pile2count or ABcache file with Chr Start Ref A-datacols C-data G-data T-data I-data D-data
 # and returns the columns matching the coords in mut.csv reduced to the specific Alt data
-# mpileup | cut .. | cleanpileup | pile2count2 | filterVar <mut.csv> chrom
+# mpileup | cut .. | cleanpileup | pile2count2 | tumor2matrix <mut.csv> chrom
 # mut.csv must have columns: Chr Start End Ref Alt
 
 ###################################################
@@ -83,7 +83,14 @@ NR == 1 { # @HEADER of mutFile
 
     # open PON getline stream (Gstream) and skip first line
     if (PONfile != "none") {
-        getline < PONfile;
+        if (PONfile ~ /.gz$/) {
+            printf("<tumor2matrix> Using compressed PONcache %s.\n", PONfile) > "/dev/stderr";
+            PONcmd = "cat " PONfile " | gunzip "
+        } else {
+            printf("<tumor2matrix> Using PONcache %s.\n", PONfile) > "/dev/stderr";
+            PONcmd = "cat " PONfile
+        }
+        PONcmd | getline;
     }
 
     # if mutfile contains header, skip to next line
@@ -145,7 +152,7 @@ writeHeader { #@stream header
         ########
         next;
     } else {
-        print("<filterVar> No header detected") > "/dev/stderr";
+        print("<tumor2matrix> No header detected") > "/dev/stderr";
     }
 }
 readData { #@ stream data
@@ -191,7 +198,7 @@ readData { #@ stream data
 
     ############ get the PON cache data via Gstream#############
     if (PONfile != "none") {
-        while ((getline < PONfile) > 0) { # Gstream
+        while ((PONcmd | getline) > 0) { # Gstream
 
             if ($2 == currentPOS) { # found position in Gstream 
                 # print the tumor data local stream

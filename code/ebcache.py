@@ -101,6 +101,7 @@ def PONmatrix2AB_multi(
         "threads": 8,
         "chunk_size": 50000,
         "zero_path": "zero",
+        "zero_condense_factor": 13,
     },
 ):
     """
@@ -111,13 +112,27 @@ def PONmatrix2AB_multi(
 
     pool = Pool(threads)
     show_output(f"Starting AB conversion of PON matrix using {threads} cores")
-    # tidy the pon_matrix_df
-    stack_df = stackPONmatrix(pon_matrix_df)
-    show_output(f"PON matrix is stacked")
+
+    # stack the pon_matrix_df using multithreads if possible
+    if threads > 1:
+        stack_split = np.array_split(matrix_df, threads)
+        stacked_dfs = pool.imap(stackPONmatrix(pon_matrix_df))
+        pool.close()
+        stack_df = pd.concat(stacked_dfs)
+    else:
+        # only one core
+        stack_df = stackPONmatrix(pon_matrix_df)
+    show_output(f"PON matrix has been stacked")
 
     pon_len = len(stack_df.index)
 
     config["len"] = pon_len
+
+    # retrieve the zero_string from the panel of normals of first row
+    # and store as state in config
+    config["zero_string"] = "|".join(
+        np.array([0] * len(stack_df.loc[0, "D"].split("|"))).astype(str)
+    )
     # minimal length of 200 lines
     # split_factor = min(math.ceil(len(pon_matrix_df.index) / 200), threads)
     split_factor = math.ceil(pon_len / config["chunk_size"])
