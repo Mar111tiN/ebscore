@@ -25,6 +25,11 @@ while (( "$#" )); do
             exit 1;
         fi
         ;;
+        # tumor ONLY
+        -T|--tumor-only) # do not perform PONmatrix incorporation
+        tumorOnly=1;
+        shift
+        ;;
         # PON input
         -P|--pon-matrix)
         if [ -n "$2" ] && [ ${2:0:1} != "-" ]; then
@@ -59,12 +64,12 @@ done
 eval set -- "$PARAMS"
 
 ####### DEFAULT ARGS ####################
-tumorPileup=${useExonicCoords-0};
-filterChrom=${filterChrom-""};
-mutFile=$1;
+tumorPileup=${useExonicCoords-0}
+filterChrom=${filterChrom-""}
+mutFile=$1
 
-PONfile=${PONfile-"none"};
-PONexclude=${PONexclude-0};
+PONfile=${PONfile-"none"}
+PONexclude=${PONexclude-0}
 
 #############################################
 ###### START ################################
@@ -75,14 +80,15 @@ NR == 1 { # @HEADER of mutFile
     SEP = "=";
     PONfile = "'$PONfile'";
     PONexclude='$PONexclude';
+    tumorOnly='${tumorOnly-0}'
     chrom = "'$2'";
     # set STATE variables
     readMut = 1;
     readData = 0
     step = 1; # the position counter
 
-    # open PON getline stream (Gstream) and skip first line
-    if (PONfile != "none") {
+    # if PONfile from cache is used, prepare getline command
+    if (PONfile != "none" && tumorOnly == 0) {
         if (PONfile ~ /.gz$/) {
             printf("<tumor2matrix> Using compressed PONcache %s.\n", PONfile) > "/dev/stderr";
             PONcmd = "cat " PONfile " | gunzip "
@@ -90,6 +96,7 @@ NR == 1 { # @HEADER of mutFile
             printf("<tumor2matrix> Using PONcache %s.\n", PONfile) > "/dev/stderr";
             PONcmd = "cat " PONfile
         }
+        # open PON getline stream (Gstream) and skip first line
         PONcmd | getline;
     }
 
@@ -143,9 +150,14 @@ writeHeader { #@stream header
         # get the col numbers for the vars from the header into COL array
         # COL["A"] = 4 etc...
         for (col=0; col++<NF;) {
-        COL[$col] = col;
+            COL[$col] = col;
         }
-        printf("Chr\tStart\tEnd\tRef\tAlt\tTumor\tPON+\tPON-\n");
+        if (tumorOnly == 1) {
+            printf("Chr\tStart\tEnd\tRef\tAlt\tTumor\n");
+        } else {
+            printf("Chr\tStart\tEnd\tRef\tAlt\tTumor\tPON+\tPON-\n");
+        }
+
         ########
         # printf("Chr\tStart\tEnd\tRef\tAlt\tTumor:Alt=Depth\tPON:Alt=Depth\n");
         # printf("stdinBase\tstdinDepth\tPONData\tPONdepth\n");
@@ -189,14 +201,15 @@ readData { #@ stream data
         }
     } 
 
-
-    
     # store the streamData and Depth
     streamData = $(COL[altBase]);
     # get the Depth from last column
     streamDepth = $NF;
-
+    if (tumorOnly == 1) {
+        printf("%s=%s\n", streamData, streamDepth);
+    }
     ############ get the PON cache data via Gstream#############
+
     if (PONfile != "none") {
         while ((PONcmd | getline) > 0) { # Gstream
 
