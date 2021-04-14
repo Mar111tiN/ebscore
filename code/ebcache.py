@@ -110,20 +110,19 @@ def PONmatrix2AB_multi(
 
     threads = config["threads"]
 
-    pool = Pool(threads)
+    stack_pool = Pool(threads)
     show_output(f"Starting AB conversion of PON matrix using {threads} cores")
 
     # stack the pon_matrix_df using multithreads if possible
     if threads > 1:
-        stack_split = np.array_split(matrix_df, threads)
-        stacked_dfs = pool.imap(stackPONmatrix(pon_matrix_df))
-        pool.close()
-        stack_df = pd.concat(stacked_dfs)
+        stack_split = np.array_split(pon_matrix_df, threads)
+        stacked_dfs = stack_pool.imap(stackPONmatrix, stack_split)
+        stack_pool.close()
+        stack_df = pd.concat(stacked_dfs).reset_index(drop=True)
     else:
         # only one core
         stack_df = stackPONmatrix(pon_matrix_df)
     show_output(f"PON matrix has been stacked")
-
     pon_len = len(stack_df.index)
 
     config["len"] = pon_len
@@ -133,13 +132,15 @@ def PONmatrix2AB_multi(
     config["zero_string"] = "|".join(
         np.array([0] * len(stack_df.loc[0, "D"].split("|"))).astype(str)
     )
+
+    AB_pool = Pool(threads)
     # minimal length of 200 lines
     # split_factor = min(math.ceil(len(pon_matrix_df.index) / 200), threads)
     split_factor = math.ceil(pon_len / config["chunk_size"])
     # split the matrix
     split = np.array_split(stack_df, split_factor)
-    dfs = pool.imap(partial(matrix2AB, config), split)
-    pool.close()
+    dfs = AB_pool.imap(partial(matrix2AB, config), split)
+    AB_pool.close()
     # out_df contains AB params
     pon_AB_df = unstack_PONAB(pd.concat(dfs).reset_index(drop=True))
     show_output(f"PON matrix successfully converted!", color="success")
