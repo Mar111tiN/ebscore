@@ -9,7 +9,7 @@ from script_utils import show_output, show_command, run_cmd
 # here come all the functions involved in converting raw data (bam or pileup) to dataframes
 
 
-def tumor2matrix(mut_file, bam="", pileup="", pon_list="", chrom="", EBconfig={}):
+def tumor2matrix(mut_file, bam="", pileup="", pon_list="", chrom="", config={}):
     """
     converts the bam_file and the Pon-bams into a matrix for EB computations
     does all the work behind the curtain:
@@ -21,16 +21,16 @@ def tumor2matrix(mut_file, bam="", pileup="", pon_list="", chrom="", EBconfig={}
     # PARAMS
     # mawk tool unwrapper
     def mawk(tool):
-        return os.path.join(EBconfig["mawk_path"], f"{tool}.mawk")
+        return os.path.join(config["mawk_path"], f"{tool}.mawk")
 
-    gsplit = EBconfig["genome_split"]
-    pon_path = EBconfig["pon_path"]
-    q = EBconfig["MAPQ"]
-    Q = EBconfig["Q"]
+    gsplit = config["genome_split"]
+    pon_path = config["pon_path"]
+    q = config["MAPQ"]
+    Q = config["Q"]
     base_name = os.path.splitext(os.path.basename(mut_file))[0]
-    use_cache = EBconfig["use_cache"]
+    use_cache = config["use_cache"]
     # check the temp_folder with default pon_path/temp
-    temp_folder = EBconfig.get("temp_dir", os.path.join(pon_path, "temp"))
+    temp_folder = config.get("temp_dir", os.path.join(pon_path, "temp"))
     if not os.path.isdir(temp_folder):
         os.mkdir(temp_folder)
 
@@ -68,7 +68,7 @@ def tumor2matrix(mut_file, bam="", pileup="", pon_list="", chrom="", EBconfig={}
     # PON file
     # find out whether bam/pileup is contained in pon_list
     # create the pon_list
-    pon_list = os.path.join(EBconfig["pon_path"], pon_list)
+    pon_list = os.path.join(config["pon_path"], pon_list)
 
     # if normal matching the tumor is contained in PON file
     # normal_in_PON_pos > 0
@@ -88,7 +88,7 @@ def tumor2matrix(mut_file, bam="", pileup="", pon_list="", chrom="", EBconfig={}
     ##### use PON cache
     if use_cache:
         # check if PONcache matrix file is there
-        matrix_file = os.path.join(EBconfig["pon_path"], f"matrix/{chrom}.pon.gz")
+        matrix_file = os.path.join(config["pon_path"], f"matrix/{chrom}.pon.gz")
         if os.path.isfile(matrix_file):
             tumor2matrix_cmd += f" -P {matrix_file}"
         elif (os.path.isfile(matrix_file := matrix_file.replace(".gz", ""))):
@@ -101,7 +101,7 @@ def tumor2matrix(mut_file, bam="", pileup="", pon_list="", chrom="", EBconfig={}
             )
             use_cache = False
         # check if ABcache file is there
-        AB_file = os.path.join(EBconfig["pon_path"], f"ABcache/{chrom}.AB.gz")
+        AB_file = os.path.join(config["pon_path"], f"ABcache/{chrom}.AB.gz")
         # check existence of matrix file
         if os.path.isfile(AB_file):
             tumor2matrix_cmd += f" -A {AB_file}"

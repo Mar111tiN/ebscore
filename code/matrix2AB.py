@@ -29,13 +29,12 @@ def matrix2AB(config, matrix_df):
     config = {
         "fit_pen": 0.5,
         "threads": 8,
-        "chunk_size": 1000,
-        "zero_file": os.path.join(pon_path, "zero.csv"),
+        "AB_chunk_size": 1000,
         "zero_condense_factor": 13 # how much complexity remains after flattening the tumor-zero lines
     }
     """
 
-    # finished_line = matrix_df.iloc[0].name + config["chunk_size"]
+    # finished_line = matrix_df.iloc[0].name + config["AB_chunk_size"]
     # percent = round(finished_line / config["len"] * 100, 1)
 
     zero_string = config["zero_string"]
@@ -51,7 +50,7 @@ def matrix2AB(config, matrix_df):
 
     # load the zero_df
     # check if zero_folder exists
-    zero_path = config["zero_path"]
+    zero_path = os.path.join(config["pon_path"], "zero")
     if not os.path.isdir(zero_path):
         os.makedirs(zero_path)
 
@@ -91,10 +90,10 @@ def matrix2AB(config, matrix_df):
         old_lines = len(old_zero_df.index)
         updated_zero_df = pd.concat([updated_zero_df, old_zero_df]).drop_duplicates("D")
 
-    if len(zero_df.index) > old_lines:
+    if len(updated_zero_df.index) > old_lines:
         # write to new zero
         zero_file = get_next_zero(zero_path)
-        zero_df.to_csv(zero_file, sep="\t", index=False)
+        updated_zero_df.to_csv(zero_file, sep="\t", index=False)
         show_output(
             f"Saving updated zero cache to {os.path.basename(zero_file)}", multi=True
         )
@@ -133,7 +132,7 @@ def unstackAB(stackAB_df):
         .set_index(["Chr", "Start", "End", "Ref", "Alt", "Tumor", "strand"])
         .unstack("strand")["AB"]
     )
-    un1["AB"] = un1["PON+"] + "=" + un1["PON-"]
+    un1["AB"] = un1["PON+"] + "-" + un1["PON-"]
     un2 = un1.reset_index(drop=False).sort_values(["Start", "End"])
     return un2.loc[:, ["Chr", "Start", "End", "Ref", "Alt", "Tumor", "AB"]]
 
@@ -143,8 +142,7 @@ def matrix2AB_multi(
     config={
         "fit_pen": 0.5,
         "threads": 8,
-        "chunk_size": 500,
-        "zero_path": "zero",
+        "AB_chunk_size": 500,
         "zero_condense_factor": 13,
     },
 ):
@@ -171,7 +169,7 @@ def matrix2AB_multi(
     )
     # minimal length of 200 lines
     # split_factor = min(math.ceil(len(pon_matrix_df.index) / 200), threads)
-    split_factor = math.ceil(pon_len / config["chunk_size"])
+    split_factor = math.ceil(pon_len / config["AB_chunk_size"])
     # split the matrix
     split = np.array_split(stack_df, split_factor)
     dfs = pool.imap(partial(matrix2AB, config), split)
@@ -179,4 +177,9 @@ def matrix2AB_multi(
     # out_df contains AB params
     AB_df = unstackAB(pd.concat(dfs).reset_index(drop=True))
     show_output(f"matrix successfully converted!", color="success")
-    return AB_df
+    # bring back the PONmatrix
+    AB_df = AB_df.merge(matrix_df)
+    AB_df.loc[:, 'PON'] = AB_df['PON+'] + "-" + AB_df['PON-']
+    # AB_df.loc[:, 'PON'] = AB_df['PON+'].str.split("=").str[0] + "-" + AB_df['PON-'].str.split("=").str[0] + "=" + AB_df['PON+'].str.split("=").str[1] + "-" + AB_df['PON-'].str.split("=").str[1]
+    return AB_df.loc[:, ['Chr', 'Start', 'End', 'Ref', 'Alt', 'Tumor', 'PON', 'AB']]
+

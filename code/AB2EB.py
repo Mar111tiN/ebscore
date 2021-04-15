@@ -28,7 +28,7 @@ def AB2EB_row(row):
     """
 
     # get AB params from AB string
-    AB_params = np.array([p.split("|") for p in row["AB"].split("=")]).astype(float)
+    AB_params = np.array([p.split("|") for p in row["AB"].split("-")]).astype(float)
 
     # get tumor matrix from Tumor string
     t_matrix = np.transpose([p.split("-") for p in row["Tumor"].split("=")]).astype(int)

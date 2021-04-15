@@ -11,7 +11,7 @@ from script_utils import show_output, run_cmd
 from matrix2AB import matrix2AB
 
 
-def PON2matrix(pon_list, chrom, EBconfig={}):
+def PON2matrix(pon_list, chrom, config={}):
     """
     generates matrix file from pon_list
     """
@@ -19,26 +19,26 @@ def PON2matrix(pon_list, chrom, EBconfig={}):
     # PARAMS
     # mawk tool unwrapper
     def mawk(tool):
-        return os.path.join(EBconfig["mawk_path"], f"{tool}.mawk")
+        return os.path.join(config["mawk_path"], f"{tool}.mawk")
 
-    gsplit = EBconfig["genome_split"]
-    pon_path = EBconfig["pon_path"]
-    q = EBconfig["MAPQ"]
-    Q = EBconfig["Q"]
-    bed = EBconfig["bed_file"]
+    gsplit = config["genome_split"]
+    pon_path = config["pon_path"]
+    q = config["MAPQ"]
+    Q = config["Q"]
+    bed = config["bed_file"]
 
     matrix_path = os.path.join(pon_path, "matrix")
     if not os.path.isdir(matrix_path):
         os.mkdir(matrix_path)
 
     # check the temp_folder with default pon_path/temp
-    temp_folder = EBconfig.get("temp_dir", os.path.join(pon_path, "temp"))
+    temp_folder = config.get("temp_dir", os.path.join(pon_path, "temp"))
     if not os.path.isdir(temp_folder):
         os.mkdir(temp_folder)
-    pon_list_full = os.path.join(EBconfig["temp_dir"], f"full_{pon_list}")
+    pon_list_full = os.path.join(config["temp_dir"], f"full_{pon_list}")
 
     # create the pon_list with full path
-    pon_list = os.path.join(EBconfig["pon_path"], pon_list)
+    pon_list = os.path.join(config["pon_path"], pon_list)
 
     if not os.path.isfile(pon_list_full):
         get_pon_df(pon_list, pon_path).to_csv(
