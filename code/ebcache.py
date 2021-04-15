@@ -83,6 +83,10 @@ def stackPONmatrix(PON_df):
 
 
 def unstack_PONAB(stack_df):
+    '''
+    convert the stacked PON_df back into the normal PON_df for human readable output
+    '''
+    
     un1 = (
         stack_df.loc[:, ["Chr", "Start", "Ref", "Alt", "strand", "AB"]]
         .set_index(["Chr", "Start", "Ref", "Alt", "strand"])
