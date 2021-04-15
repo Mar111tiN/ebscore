@@ -2,13 +2,8 @@
 
 # filterEB v1.3
 
-# INPUT
-# takes a pile2count or ABcache file with Chr Start Ref A-datacols C-data G-data T-data I-data D-data
-# and returns the columns matching the coords in mut.csv reduced to the specific Alt data
-# mpileup | cut .. | cleanpileup | pile2count2 | tumor2matrix <mut.csv> chrom
-# mut.csv must have columns: Chr Start End Ref Alt
-
-
+# powerhorse for EBraw data output:
+# collects tumor (and optionally PONbam pileup) and combines it with PONcache and ABcache data
 # USAGE: 
 # pileup data comes from tumor bam only or a tumor_PONlist with tumor and PONfiles
 # samtools mpileup -f $HG38 -q 20 -Q 25 -l $BED -r chr? [-b tumor_PONlist|tumor_bam] | 
@@ -17,6 +12,7 @@
 # [     -P | --pon-matrix]          =stream|<path_to_PONcache>|none     path to (opt. gzipped) PONcache_file, default is from input stream  ]
 # [     -x | --pon-exclude          <INT=0>                             removes PONdata at INT position in case of tumor_bam matching PON   ]
 # [     -A | --ABcache              =none|<path_to_PONcache>            add AB params from (opt. gzipped) ABcache to output stream          ]
+# [     -m | --include-missing      FLAG                                if mut_positions missing in tumor should be printed                 ]
 ###################################################
 
 ####### ARGPARSE ##################
@@ -25,6 +21,10 @@ while (( "$#" )); do
     # allow for equal sign in long-format options
     [[ $1 == --*=* ]] && set -- "${1%%=*}" "${1#*=}" "${@:2}"
     case "$1" in
+        -m|--include-missing)
+        printMissing=1;
+        shift
+        ;;
         # PON input (can come from stream in case of combined pileup or pon_matrix or not at all [option None])
         -P|--pon-matrix)
         if [ -n "$2" ] && [ ${2:0:1} != "-" ]; then
@@ -75,7 +75,7 @@ eval set -- "$PARAMS"
 
 
 #############################################
-###### START ################################
+###### START line80 ################################
 # read the mutation file followed by the stream data (pileup of tumor/tumor+PON)
 cat $1 - | mawk '
 NR == 1 { # @HEADER of mutFile
@@ -84,7 +84,7 @@ NR == 1 { # @HEADER of mutFile
     # set the separator between Alt and Depth
     SEP = "=";
     chrom = "'$2'";
-
+    printMissing = '${printMissing-0}';
     ### PONmatrix #####################
     # PON matrix comes either from stream or from file
     PONfile = "'${PONfile-"stream"}'";
@@ -127,7 +127,6 @@ NR == 1 { # @HEADER of mutFile
             } else {
                 ABcmd = "cat " ABfile " 2>/dev/null ";
             } 
-            print("AB", ABcmd);
             # open AB getline stream (Gstream) and skip first line
             # getline == 0 if file not found --> AB > "none
             if ((ABcmd | getline) == 0) {
@@ -215,19 +214,27 @@ readData { #@ stream data
     # data is between last and currentPOS
     if (pos < currentPOS) next;
 
+    ####### MISSING DATA
+    while (pos > currentPOS) { # streamdata for currentPOS is missing
+        # get the Ref and Alt from missing position
+        if (printMissing) {
+            ref = POSREF[currentPOS];
+            alt = POSALT[currentPOS];
+            printf("%s\t%s\t%s\t%s\t%s\n",$1,currentPOS,POSEND[currentPOS],ref,alt);
+        }
+        # moved past the last POS
+        if (pos > lastPos) exit;
+        # go to next position in POS ARRAY
+        currentPOS = POS[++step];
+        # data is again between last and currentPOS
+        if (pos < currentPOS) next;
+    }
     # get the Ref and Alt from the arrays
     ref = POSREF[pos];
     alt = POSALT[pos];
     ### ########### BASE OUTPUT  ################
     printf("%s\t%s\t%s\t%s\t%s\t",$1,pos,POSEND[pos],ref,alt);
-    # data for currentPOS is missing and moved past currentPOS
-    if (pos > currentPOS) {
-        # moved past the last POS
-        if (pos > lastPos) exit;
-        
-        # go to next position in POS ARRAY
-        currentPOS = POS[++step];
-    }
+
     # @found stream data matching currentPOS:
     # print data at matching positions 
     # get the right stream column depending on POSALT
