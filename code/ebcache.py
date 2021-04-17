@@ -13,7 +13,7 @@ from matrix2AB import matrix2AB
 
 def PON2matrix(pon_list, chrom, config={}):
     """
-    generates matrix file from pon_list
+    generates matrix file from pon_list and writes it to pon_path/matrix/<chrom>.pon.gz
     """
 
     # PARAMS

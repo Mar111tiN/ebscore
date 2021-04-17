@@ -119,7 +119,7 @@ def tumor2matrix(mut_file, bam="", pileup="", pon_list="", chrom="", config={}):
     else: # no caching
         if tumor_type == "bam":
             # make filename for pon_bam
-            pon_bam = os.path.join(temp_folder, f"{base_name}_{chrom}.pon")
+            pon_bam = os.path.join(temp_folder, f"{base_name}.pon")
             pon_df.to_csv(pon_bam, index=False, header=None)
             tumor_cmd += f" -b {pon_bam} | {mawk('cleanpileup')}"
         else:
