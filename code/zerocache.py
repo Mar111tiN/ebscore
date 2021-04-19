@@ -111,7 +111,7 @@ def collapse_zeros(zero_path, zero_condense_factor=13):
         for file in os.listdir(zero_path)
         if os.path.isfile(os.path.join(zero_path, file)) and "zero" in file
     ]
-    zdfs = []
+    zero_df = pd.DataFrame()
     if len(zero_files) == 0:
         show_output(f"No zerofiles found in {zero_path}!")
         return
@@ -119,18 +119,17 @@ def collapse_zeros(zero_path, zero_condense_factor=13):
         show_output(f"Cleaning up zero file {file}", time=False)
         try:
             zdf = pd.read_csv(file, sep="\t")
-            zdfs.append(zdf)
+            # concat to zdf_all and drop duplicates
+            zero_df = pd.concat([zero_df, zdf]).drop_duplicates("D")
+            # reduce complexity using condense factor
+            zero_df.loc[:, "D"] = flatten_zeros(
+                zero_df["D"], zero_condense_factor=zero_condense_factor
+            )
         except:
             show_output(f"{file} could not be loaded", color="warning", time=False)
         os.remove(file)
-    # concat and drop duplicates
-    zero_df = pd.concat(zdfs).drop_duplicates("D")
-    # reduce complexity using condense factor
-    zero_df.loc[:, "D"] = flatten_zeros(
-        zero_df["D"], zero_condense_factor=zero_condense_factor
-    )
 
-    zero_df = zero_df.drop_duplicates("D").sort_values("D")
+    zero_df = zero_df.sort_values("D")
 
     zero_df.to_csv(os.path.join(zero_path, "zero.0.csv"), sep="\t", index=False)
     show_output(f"Written collapsed zerofile ({len(zero_df.index)} lines) to {zero_path}/zero.0.csv")
