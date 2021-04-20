@@ -83,10 +83,10 @@ def stackPONmatrix(PON_df):
 
 
 def unstack_PONAB(stack_df):
-    '''
+    """
     convert the stacked PON_df back into the normal PON_df for human readable output
-    '''
-    
+    """
+
     un1 = (
         stack_df.loc[:, ["Chr", "Start", "Ref", "Alt", "strand", "AB"]]
         .set_index(["Chr", "Start", "Ref", "Alt", "strand"])
@@ -130,7 +130,8 @@ def PONmatrix2AB_multi(
     pon_len = len(stack_df.index)
 
     config["len"] = pon_len
-
+    # retrieve the zero_string and pon_size from the panel of normals of first row
+    config["pon_size"] = len(stack_df.loc[0, "D"].split("|"))
     # retrieve the zero_string from the panel of normals of first row
     # and store as state in config
     config["zero_string"] = "|".join(

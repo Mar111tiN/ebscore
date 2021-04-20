@@ -7,10 +7,10 @@ from functools import partial
 
 from script_utils import show_output
 
-from zerocache import extract_zero_df, load_zero_df, get_next_zero, flatten_zeros
+from zerocache import load_zero_df, update_zero_file, flatten_zeros
 from ebcore import fit_bb
 
-### matrix to AB
+# ## matrix to AB
 def matrix2AB_row(row, pen=0.5):
     """
     takes a row of T and D, passes the matrix to fit_bb
@@ -23,7 +23,7 @@ def matrix2AB_row(row, pen=0.5):
     return fit_bb(count_matrix)
 
 
-##############   convert PONmatrix to PON AB
+# #############   convert PONmatrix to PON AB
 def matrix2AB(config, matrix_df):
     """
     config = {
@@ -42,7 +42,7 @@ def matrix2AB(config, matrix_df):
         f"Computing {len(matrix_df.index)} lines!",
         multi=True,
     )
-    # sort the depths at tumor == zero
+    # sort the depths at tumor == zero and reduce zero_complexity via flatten_zeros
     matrix_df.loc[matrix_df["T"] == zero_string, "D"] = flatten_zeros(
         matrix_df.loc[matrix_df["T"] == zero_string, "D"],
         zero_condense_factor=config["zero_condense_factor"],
@@ -54,7 +54,7 @@ def matrix2AB(config, matrix_df):
     if not os.path.isdir(zero_path):
         os.makedirs(zero_path)
 
-    zero_df = load_zero_df(zero_path)
+    zero_df = load_zero_df(zero_path, pon_size=config["pon_size"])
     if zero_df is None:
         use_zero = False
     else:
@@ -76,36 +76,17 @@ def matrix2AB(config, matrix_df):
     )
 
     # get all the new zeros and merge with zero_df and write to file
+    update_zero_file(matrix_df, config=config)
 
-    # here comes the zero_file update
-    updated_zero_df = extract_zero_df(matrix_df, zero_string=zero_string)
-
-    # reload the current zero_df (could be updated in between)
-    old_zero_df = load_zero_df(zero_path)
-
-    if old_zero_df is None:
-        # count the number of lines from previous zero_df
-        old_lines = 0
-    else:
-        old_lines = len(old_zero_df.index)
-        updated_zero_df = pd.concat([updated_zero_df, old_zero_df]).drop_duplicates("D")
-
-    if len(updated_zero_df.index) > old_lines:
-        # write to new zero
-        zero_file = get_next_zero(zero_path)
-        updated_zero_df.to_csv(zero_file, sep="\t", index=False)
-        show_output(
-            f"Saving updated zero cache to {os.path.basename(zero_file)}", multi=True
-        )
     show_output(
         f"AB computation finished",
         multi=True,
         color="success",
     )
-    return pd.concat([matrix_df, AB_df]) if use_zero else matrix_df
+    return pd.concat([matrix_df, AB_df]).sort_values("Start") if use_zero else matrix_df
 
 
-######### compute AB directly from tumor-matrix file
+# ######## compute AB directly from tumor-matrix file
 def stack_matrix(df):
     """
     create a stacked matrix_df for direct matrix2AB computation
@@ -157,16 +138,17 @@ def matrix2AB_multi(
 
     # tidy the pon_matrix_df
     stack_df = stack_matrix(matrix_df)
-    show_output(f"matrix has been stacked")
+    show_output("Matrix has been stacked")
 
     pon_len = len(stack_df.index)
 
     config["len"] = pon_len
 
-    # retrieve the zero_string from the panel of normals of first row
-    config["zero_string"] = "|".join(
-        np.array([0] * len(stack_df.loc[0, "D"].split("|"))).astype(str)
-    )
+    # retrieve the zero_string and pon_size from the panel of normals of first row
+    config["pon_size"] = len(stack_df.loc[0, "D"].split("|"))
+
+    config["zero_string"] = "|".join(np.array([0] * config["pon_size"]).astype(str))
+
     # minimal length of 200 lines
     # split_factor = min(math.ceil(len(pon_matrix_df.index) / 200), threads)
     split_factor = math.ceil(pon_len / config["AB_chunk_size"])
@@ -176,10 +158,9 @@ def matrix2AB_multi(
     pool.close()
     # out_df contains AB params
     AB_df = unstackAB(pd.concat(dfs).reset_index(drop=True))
-    show_output(f"matrix successfully converted!", color="success")
+    show_output("Matrix successfully converted!", color="success")
     # bring back the PONmatrix
     AB_df = AB_df.merge(matrix_df)
-    AB_df.loc[:, 'PON'] = AB_df['PON+'] + "-" + AB_df['PON-']
+    AB_df.loc[:, "PON"] = AB_df["PON+"] + "-" + AB_df["PON-"]
     # AB_df.loc[:, 'PON'] = AB_df['PON+'].str.split("=").str[0] + "-" + AB_df['PON-'].str.split("=").str[0] + "=" + AB_df['PON+'].str.split("=").str[1] + "-" + AB_df['PON-'].str.split("=").str[1]
-    return AB_df.loc[:, ['Chr', 'Start', 'End', 'Ref', 'Alt', 'Tumor', 'PON', 'AB']]
-
+    return AB_df.loc[:, ["Chr", "Start", "End", "Ref", "Alt", "Tumor", "PON", "AB"]]
