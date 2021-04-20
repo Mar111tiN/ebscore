@@ -58,16 +58,16 @@ def load_zero_df(zero_path, pon_size=10):
     zero_dfs = []
 
     ### DEBUG
-    print(
-        f"Try loading zero files {' '.join([os.path.basename(f) for f in load_file_list])}"
-    )
+    # print(
+    #     f"Try loading zero files {' '.join([os.path.basename(f) for f in load_file_list])}"
+    # )
     ###
 
     for f in load_file_list:
         try:
             zdf = pd.read_csv(f, sep="\t", compression="gzip")
             zero_dfs.append(zdf)
-            show_output(f"Loading zero cache file {os.path.basename(f)}", multi=True)
+            # show_output(f"Loading zero cache file {os.path.basename(f)}", multi=True)
         except:
             show_output(f"{f} could not be loaded", color="warning", time=False)
 
@@ -89,7 +89,7 @@ def update_zero_file(AB_df, config={}):
     """
 
     # extracts the zero_df from the computed AB_df
-    updated_zero_df = extract_zero_df(AB_df, zero_string=config["zero_string"])
+    new_zero_df = extract_zero_df(AB_df, zero_string=config["zero_string"])
 
     zero_path = os.path.join(config["pon_path"], "zero")
 
@@ -97,16 +97,12 @@ def update_zero_file(AB_df, config={}):
     # reload the current zero_df state(could be updated in between)
     latest_df = load_zero_df(zero_path)
 
-    if latest_df is None:
-        # count the number of lines from previous zero_df
-        old_lines = 0
-    else:
-        old_lines = len(latest_df.index)
-        new_zero_df = pd.concat([updated_zero_df, latest_df]).drop_duplicates(
+    if latest_df is not None:
+        new_zero_df = pd.concat([new_zero_df, latest_df]).drop_duplicates(
             "D", keep=False
         )
 
-    if len(new_zero_df.index) > old_lines:
+    if not new_zero_df.empty:
         # write to new zero
         save_next_zero(new_zero_df, zero_path, pon_size=pon_size)
 
