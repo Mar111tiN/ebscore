@@ -101,7 +101,7 @@ def update_zero_file(AB_df, config={}):
         new_zero_df = pd.concat([new_zero_df, latest_df]).drop_duplicates(
             "D", keep=False
         )
-
+        del latest_df
     if not new_zero_df.empty:
         # write to new zero
         save_next_zero(new_zero_df, zero_path, pon_size=pon_size)
@@ -148,7 +148,7 @@ def flatten_zeros(col, zero_condense_factor=13):
     )
 
 
-def collapse_zeros(zero_path, pon_size=10):
+def collapse_zeros(zero_path, pon_size=10, reflat=False, zero_condense_factor=13):
     """
     reduces all zero_files to zero.0.csv
     """
@@ -160,8 +160,9 @@ def collapse_zeros(zero_path, pon_size=10):
         show_output(f"No zerofiles found in {zero_path}!", color="warning")
         return
     if len(zero_files) == 1:
-        show_output(f"Only one file found in {zero_path}! No need to collapse!", color="success")
-        return
+        if not reflat:
+            show_output(f"Only one file found in {zero_path}! No need to collapse!", color="success")
+            return
     show_output(
         f"Collapsing all {len(zero_files)} zero files in {zero_path} for PONsize {pon_size} into zero{pon_size}.0.gz"
         )
@@ -176,11 +177,19 @@ def collapse_zeros(zero_path, pon_size=10):
             # reduce complexity using condense factor
         except:
             show_output(f"{file} could not be loaded", color="warning", time=False)
+
     show_output("Collapsing all zeros into one file")   
     zero_df = pd.concat(zdfs).drop_duplicates("D").sort_values("D")
-    # zero_df.loc[:, "D"] = flatten_zeros(
-    #     zero_df["D"], zero_condense_factor=zero_condense_factor
-    # )
+
+    # reflat if selected using zero_condense_factor
+    if reflat:
+        # reapply the flatten procedure
+        show_output(f"Flatten zero file with condense_factor {zero_condense_factor}")
+        zero_df.loc[:, "D"] = flatten_zeros(
+            zero_df["D"], zero_condense_factor=zero_condense_factor
+        )
+        # remove the created duplicates
+        zero_df = zero_df.drop_duplicates("D").sort_values("D")
     zero0_file = os.path.join(zero_path, f"zero{pon_size}.0.gz")
     zero_df.to_csv(
         zero0_file,

@@ -113,19 +113,8 @@ def PONmatrix2AB_multi(
     """
 
     threads = config["threads"]
-
-    stack_pool = Pool(threads)
-    show_output(f"Starting AB conversion of PON matrix using {threads} cores")
-
-    # stack the pon_matrix_df using multithreads if possible
-    if threads > 1:
-        stack_split = np.array_split(pon_matrix_df, threads)
-        stacked_dfs = stack_pool.imap(stackPONmatrix, stack_split)
-        stack_pool.close()
-        stack_df = pd.concat(stacked_dfs).reset_index(drop=True)
-    else:
-        # only one core
-        stack_df = stackPONmatrix(pon_matrix_df)
+    # only one core
+    stack_df = stackPONmatrix(pon_matrix_df)
     show_output("PON matrix has been stacked")
     pon_len = len(stack_df.index)
 

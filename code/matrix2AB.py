@@ -70,6 +70,7 @@ def matrix2AB(config, matrix_df):
             f"{len(AB_df.index)} matching lines found in zero cache! Computing remaining {len(matrix_df.index)} lines.",
             multi=True,
         )
+    del zero_df
 
     matrix_df.loc[:, "AB"] = matrix_df.apply(
         matrix2AB_row, pen=config["fit_pen"], axis=1
