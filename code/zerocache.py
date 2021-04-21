@@ -148,7 +148,7 @@ def flatten_zeros(col, zero_condense_factor=13):
     )
 
 
-def collapse_zeros(zero_path, pon_size=10, zero_condense_factor=13):
+def collapse_zeros(zero_path, pon_size=10):
     """
     reduces all zero_files to zero.0.csv
     """
@@ -156,24 +156,28 @@ def collapse_zeros(zero_path, pon_size=10, zero_condense_factor=13):
 
     zero_files, _ = load_zero_list(zero_path, pon_size)
     zero_df = pd.DataFrame()
-    if len(zero_files):
-        show_output(
-            f"Collapsing all {len(zero_files)} zero files in {zero_path} for PONsize {pon_size} into zero{pon_size}.0.gz"
-        )
-    else:
-        show_output(f"No zerofiles found in {zero_path}!")
+    if len(zero_files) == 0:
+        show_output(f"No zerofiles found in {zero_path}!", color="warning")
         return
+    if len(zero_files) == 1:
+        show_output(f"Only one file found in {zero_path}! No need to collapse!", color="success")
+        return
+    show_output(
+        f"Collapsing all {len(zero_files)} zero files in {zero_path} for PONsize {pon_size} into zero{pon_size}.0.gz"
+        )
+
+    zdfs = []
     for file in zero_files:
         show_output(f"Cleaning up zero file {file}", time=False)
         try:
             zdf = pd.read_csv(file, sep="\t", compression="gzip")
             # concat to zdf_all and drop duplicates
-            zero_df = pd.concat([zero_df, zdf]).drop_duplicates("D")
+            zdfs.append(zdf)
             # reduce complexity using condense factor
         except:
             show_output(f"{file} could not be loaded", color="warning", time=False)
-
-    zero_df = zero_df.sort_values("D")
+    show_output("Collapsing all zeros into one file")   
+    zero_df = pd.concat(zdfs).drop_duplicates("D").sort_values("D")
     # zero_df.loc[:, "D"] = flatten_zeros(
     #     zero_df["D"], zero_condense_factor=zero_condense_factor
     # )

@@ -126,7 +126,7 @@ def PONmatrix2AB_multi(
     else:
         # only one core
         stack_df = stackPONmatrix(pon_matrix_df)
-    show_output(f"PON matrix has been stacked")
+    show_output("PON matrix has been stacked")
     pon_len = len(stack_df.index)
 
     config["len"] = pon_len
@@ -148,5 +148,5 @@ def PONmatrix2AB_multi(
     AB_pool.close()
     # out_df contains AB params
     pon_AB_df = unstack_PONAB(pd.concat(dfs).reset_index(drop=True))
-    show_output(f"PON matrix successfully converted!", color="success")
+    show_output("PON matrix successfully converted!", color="success")
     return pon_AB_df

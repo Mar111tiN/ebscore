@@ -1,10 +1,10 @@
 import pandas as pd
 from io import StringIO
 import os
-import sys
+
 from subprocess import PIPE, run
 from ebutils import get_pon
-from script_utils import show_output, show_command, run_cmd
+from script_utils import show_output, show_command
 
 # here come all the functions involved in converting raw data (bam or pileup) to dataframes
 
@@ -84,8 +84,8 @@ def tumor2matrix(mut_file, bam="", pileup="", pon_list="", chrom="", config={}):
 
     # build the tumor2matrix command before other commands
     tumor2matrix_cmd = f"{mawk('tumor2matrix')} {mut_file} {chrom}"
-    
-    ##### use PON cache
+
+    # #### use PON cache
     if use_cache:
         # check if PONcache matrix file is there
         matrix_file = os.path.join(config["pon_path"], f"matrix/{chrom}.pon.gz")
@@ -108,7 +108,7 @@ def tumor2matrix(mut_file, bam="", pileup="", pon_list="", chrom="", config={}):
         elif (os.path.isfile(AB_file := AB_file.replace(".gz", ""))):
             tumor2matrix_cmd += f" -A {AB_file}"       
 
-    if use_cache: # re-check for bam files in case PONmatrix was not found (fallback to pileup of bam+PON)
+    if use_cache:  # re-check for bam files in case PONmatrix was not found (fallback to pileup of bam+PON)
         if tumor_type == "bam":
             # just add the bam_file as
             tumor_cmd += f" {tumor_file} | {mawk('cleanpileup')}"
@@ -116,7 +116,7 @@ def tumor2matrix(mut_file, bam="", pileup="", pon_list="", chrom="", config={}):
         if normal_in_PON_pos:
             tumor2matrix_cmd += f" -x {normal_in_PON_pos}"
 
-    else: # no caching
+    else:  # no caching
         if tumor_type == "bam":
             # make filename for pon_bam
             pon_bam = os.path.join(temp_folder, f"{base_name}.pon")
