@@ -55,6 +55,7 @@ def matrix2AB(config, matrix_df):
         os.makedirs(zero_path)
 
     zero_df = load_zero_df(zero_path, pon_size=config["pon_size"])
+    
     if zero_df is None:
         use_zero = False
     else:
