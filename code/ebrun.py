@@ -1,10 +1,10 @@
 import os
 import pandas as pd
 
-from ebraw import tumor2matrix
-from matrix2AB import matrix2AB_multi
+from file2matrix import tumor2matrix
+from tumor_matrix import tumor_matrix2AB_multi
 from AB2EB import AB2EB_multi
-from script_utils import show_output
+from script_utils_EB import show_output
 
 
 def run_ebscore(
@@ -22,8 +22,8 @@ def run_ebscore(
         "MAPQ": 20,
         "Q": 25,
         "fit_pen": 0.5,
-        "AB_chunk_size": 500,
-        "zero_condense_factor": 13,
+        "AB_chunksize": 500,
+        "ZDfactor": 13,
         "threads": 8,
         "use_cache": True,
         "debug": False,
@@ -75,7 +75,7 @@ def run_ebscore(
             f"PONmatrix computation on chrom {chrom} of {tumor_file} finished. Starting AB computation..",
             color="success",
         )
-        AB_df = matrix2AB_multi(matrix_df, config=config)
+        AB_df = tumor_matrix2AB_multi(matrix_df, config=config)
         show_output(f"Computing ABparams finished.", color="success")
         if debug:
             AB_file = f"{os.path.splitext(output_file)[0]}.AB"

@@ -1,5 +1,5 @@
 import os
-from subprocess import PIPE, check_call as run
+from subprocess import PIPE, run
 from io import StringIO
 from datetime import datetime as dt
 import pandas as pd
@@ -52,9 +52,10 @@ def show_command(command, list=False, time=False, multi=True, **kwargs):
     return
 
 
-def run_cmd(cmd, **kwargs):
-    show_command(cmd, **kwargs)
-    exit = run(cmd, shell=True)
+def run_cmd(cmd, show=False, **kwargs):
+    if show:
+        show_command(cmd, **kwargs)
+    exit = run(cmd, shell=True, check=True)
     return exit == 0
 
 

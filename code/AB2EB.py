@@ -5,7 +5,7 @@ import math
 from multiprocessing import Pool
 from functools import partial
 
-from script_utils import show_output
+from script_utils_EB import show_output
 from ebcore import bb_pvalue, fisher_combination
 
 

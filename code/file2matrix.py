@@ -1,10 +1,8 @@
 import pandas as pd
-from io import StringIO
 import os
 
-from subprocess import PIPE, run
-from ebutils import get_pon
-from script_utils import show_output, show_command
+from ebutils import get_pon, get_pon_df
+from script_utils_EB import show_output, cmd2df, run_cmd
 
 # here come all the functions involved in converting raw data (bam or pileup) to dataframes
 
@@ -43,10 +41,10 @@ def tumor2matrix(mut_file, bam="", pileup="", pon_list="", chrom="", config={}):
             temp_folder,
             f"{base_name}_{chrom}.bed",
         )
-        run(
-            f"{mawk('csv2bed')} {mut_file} {chrom} > {bed_file}", check=True, shell=True
+        run_cmd(
+            f"{mawk('csv2bed')} {mut_file} {chrom} > {bed_file}"
         )
-        # run(f"{mawk('csv2bed')} {mut_file} > {bed_file}", check=True, shell=True)
+
         tumor_cmd = f"samtools mpileup -Q {Q} -q {q} -l {bed_file} -f {gsplit}/{chrom}.fa -r {chrom}"
     else:
         if pileup:
@@ -123,7 +121,7 @@ def tumor2matrix(mut_file, bam="", pileup="", pon_list="", chrom="", config={}):
             pon_df.to_csv(pon_bam, index=False, header=None)
             tumor_cmd += f" -b {pon_bam} | {mawk('cleanpileup')}"
         else:
-            show_command(
+            show_output(
                 "If PON cache is not used, tumor pileup cannot be used!",
                 color="warning",
                 multi=False,
@@ -132,9 +130,47 @@ def tumor2matrix(mut_file, bam="", pileup="", pon_list="", chrom="", config={}):
     # print(pon_df)
 
     cmd = f"{tumor_cmd} | {mawk('pile2count')} | {tumor2matrix_cmd}"
-    show_command(cmd, multi=False)
-    matrix_df = pd.read_csv(
-        StringIO(run(cmd, stdout=PIPE, check=True, shell=True).stdout.decode("utf-8")),
-        sep="\t",
-    )
+
+    matrix_df = cmd2df(cmd)
     return matrix_df
+
+
+def PON2matrix(pon_list, chrom, config={}):
+    """
+    generates matrix file from pon_list and writes it to pon_path/matrix/<chrom>.pon.gz
+    """
+
+    # PARAMS
+    # mawk tool unwrapper
+    def mawk(tool):
+        return os.path.join(config["mawk_path"], f"{tool}.mawk")
+
+    gsplit = config["genome_split"]
+    pon_path = config["pon_path"]
+    q = config["MAPQ"]
+    Q = config["Q"]
+    bed = config["bed_file"]
+
+    matrix_path = os.path.join(pon_path, "matrix")
+    if not os.path.isdir(matrix_path):
+        os.mkdir(matrix_path)
+
+    # check the temp_folder with default pon_path/temp
+    temp_folder = config.get("temp_dir", os.path.join(pon_path, "temp"))
+    if not os.path.isdir(temp_folder):
+        os.mkdir(temp_folder)
+    pon_list_full = os.path.join(config["temp_dir"], f"full_{pon_list}")
+
+    # create the pon_list with full path
+    pon_list = os.path.join(config["pon_path"], pon_list)
+
+    get_pon_df(pon_list, pon_path).to_csv(
+        pon_list_full, sep="\t", index=False, header=False
+    )
+
+    pileup_cmd = f"samtools mpileup -Q {Q} -q {q} -l {bed} -f {gsplit}/{chrom}.fa -b {pon_list_full} -r {chrom}"
+
+    pon_matrix_file = os.path.join(matrix_path, f"{chrom}.pon")
+    cmd = f"{pileup_cmd} | {mawk('cleanpileup')} | {mawk('pile2count')} |  gzip  > {pon_matrix_file}.gz"
+    run_cmd(cmd)
+    return pon_matrix_file
