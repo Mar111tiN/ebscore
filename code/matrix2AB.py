@@ -11,13 +11,13 @@ from zerocache import update_zero_file, flatten_df
 from ebcore import fit_bb
 
 # ## matrix to AB
-def matrix2AB_row(row, pen=0.5, lines=1000):
+def matrix2AB_row(row, pen=0.5, lines=1000, steps=100):
     """
     takes a row of T and D, passes the matrix to fit_bb
     returns the AB string
     """
-    steps = round(lines / 10)
-    if (row.name % steps == 0) and row.name:
+
+    if (row.name % steps == 1) and (row.name != 1):
         show_output(f"{round(row.name/lines * 100)}% finished", multi=True)
     d = row["D"]
     t = row["T"]
@@ -38,13 +38,15 @@ def matrix2AB(config, matrix_df):
 
     # reset for line counting
     matrix_df = matrix_df.reset_index(drop=True)
+    # get info for progress info
     lines = len(matrix_df.index)
+    steps = round(lines / 10) if lines > 10000 else lines + 1
     show_output(
         f"Computing {lines} lines!",
         multi=True,
     )
     matrix_df.loc[:, "AB"] = matrix_df.apply(
-        matrix2AB_row, pen=config["fit_pen"], lines=lines, axis=1
+        matrix2AB_row, pen=config["fit_pen"], lines=lines, steps=steps, axis=1
     )
 
     show_output(

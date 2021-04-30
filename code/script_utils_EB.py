@@ -59,11 +59,11 @@ def run_cmd(cmd, show=False, **kwargs):
     return exit == 0
 
 
-def cmd2df(cmd, show=False, **kwargs):
-    '''
+def cmd2df(cmd, show=True, **kwargs):
+    """
     wrapper for running shell commands directly into a dataframe
     optional output with show argument that passes kwargs to show_command
-    '''
+    """
 
     if show:
         show_command(cmd, **kwargs)

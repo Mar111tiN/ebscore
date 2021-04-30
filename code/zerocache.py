@@ -48,29 +48,31 @@ def save_next_zero(zero_df, zero_path, ponsize=10):
 
     zero_df.to_csv(next_zero_file, sep="\t", index=False, compression="gzip")
     show_output(
-        f"Saving updated zero cache ({len(zero_df.index)} lines) to {os.path.basename(next_zero_file)}", multi=False
+        f"Saving updated zero cache ({len(zero_df.index)} lines) to {os.path.basename(next_zero_file)}",
+        multi=False,
     )
-    
 
 
 def zero2AB(stack_df, config):
-    '''
+    """
     go through zero files and get matching ABs from zero cache for tumor == zerostring
-    '''
+    """
 
     # split off the zeroT_df
-    zeroT_df = stack_df.loc[stack_df['T'] == config['zerostring'], :].sort_values("D")
+    zeroT_df = stack_df.loc[stack_df["T"] == config["zerostring"], :].sort_values("D")
     # if zeroT_df is too small, just return stack_df and empty AB_df
-    if len(zeroT_df) < config['min_zt']:
+    if len(zeroT_df) < config["min_zt"]:
         return stack_df, pd.DataFrame()
-    
-    stack_df = stack_df.loc[stack_df['T'] != config['zerostring'], :]
-    
+
+    stack_df = stack_df.loc[stack_df["T"] != config["zerostring"], :]
+
     # load the zerofiles and merge incrementally to save memory
     AB_dfs = []
-    for zfile in load_zero_list(config['zero_path'], config['ponsize'])[0]:
+    for zfile in load_zero_list(config["zero_path"], config["ponsize"])[0]:
         try:
-            zgen = pd.read_csv(zfile, sep="\t", compression="gzip", chunksize=config['chunksize'])
+            zgen = pd.read_csv(
+                zfile, sep="\t", compression="gzip", chunksize=config["chunksize"]
+            )
             show_output(f"Loading {zfile}")
             for zdf in zgen:
                 merge_df = zeroT_df.merge(zdf, how="left")
@@ -79,15 +81,15 @@ def zero2AB(stack_df, config):
                 zeroT_df = merge_df.query("AB != AB").drop("AB", axis=1)
         except Exception as e:
             show_output(f"{zfile} could not be loaded, {e}", color="warning")
-    
+
     AB_df = pd.concat(AB_dfs)
-    
+
     # load remaining
     stack_df = pd.concat([stack_df, zeroT_df]).reset_index(drop=True)
     show_output(
-            f"{len(AB_df.index)} matching lines found in zero cache! Computing remaining {len(stack_df.index)} lines.",
-            multi=False
-        )
+        f"{len(AB_df.index)} matching lines found in zero cache! Computing remaining {len(stack_df.index)} lines.",
+        multi=False,
+    )
     return stack_df, AB_df
 
 
@@ -98,21 +100,24 @@ def update_zero_file(AB_df, config={}):
     """
 
     # extracts the zero_df from the computed AB_df
-    new_zero_df = AB_df.loc[AB_df["T"] == config["zerostring"], ["D", "AB"]].drop_duplicates(
-        "D"
-    )
+    new_zero_df = AB_df.loc[
+        AB_df["T"] == config["zerostring"], ["D", "AB"]
+    ].drop_duplicates("D")
 
     if not new_zero_df.empty:
         # write to new zero
-        save_next_zero(new_zero_df, zero_path=config["zero_path"], ponsize=config["ponsize"])
+        save_next_zero(
+            new_zero_df, zero_path=config["zero_path"], ponsize=config["ponsize"]
+        )
     return AB_df
 
-def get_zerostring(df):
-    '''
-    returns the zerostring and pon_length from first row of stacked df
-    '''
 
-    zerostring = re.sub(r"[0-9]+", "0", df.iloc[0]['D'])
+def get_zerostring(df):
+    """
+    returns the zerostring and pon_length from first row of stacked df
+    """
+
+    zerostring = re.sub(r"[0-9]+", "0", df.iloc[0]["D"])
     pon_len = int((len(zerostring) + 1) / 2)
     return zerostring, pon_len
 
@@ -123,10 +128,7 @@ def flatten_zeros(col, ZDfactor=13):
             np.round(
                 np.exp(
                     np.round(
-                        (
-                            np.log(np.sort(np.array(li).astype(int)))
-                            * ZDfactor
-                        ),
+                        (np.log(np.sort(np.array(li).astype(int))) * ZDfactor),
                         0,
                     )
                     / ZDfactor
@@ -140,18 +142,17 @@ def flatten_zeros(col, ZDfactor=13):
 
 
 def flatten_df(df, ZDfactor=13):
-    '''
+    """
     flatten a stacked df using ZDfactor
-    '''
+    """
 
     # get the zerostring
     # reduce zeros with condense_factor
     zerostring = get_zerostring(df)
-    
+
     # sort the depths at tumor == zero and reduce zero_complexity via flatten_zero
     df.loc[df["T"] == zerostring, "D"] = flatten_zeros(
-        df.loc[df["T"] == zerostring, "D"],
-        ZDfactor
+        df.loc[df["T"] == zerostring, "D"], ZDfactor
     )
     return df
 
@@ -169,11 +170,14 @@ def collapse_zeros(zero_path, ponsize=10, reflat=False, ZDfactor=13):
         return
     if len(zero_files) == 1:
         if not reflat:
-            show_output(f"Only one file found in {zero_path}! No need to collapse!", color="success")
+            show_output(
+                f"Only one file found in {zero_path}! No need to collapse!",
+                color="success",
+            )
             return
     show_output(
         f"Collapsing all {len(zero_files)} zero files in {zero_path} for PONsize {ponsize} into zero{ponsize}.0.gz"
-        )
+    )
 
     zdfs = []
     for file in zero_files:
@@ -186,16 +190,14 @@ def collapse_zeros(zero_path, ponsize=10, reflat=False, ZDfactor=13):
         except:
             show_output(f"{file} could not be loaded", color="warning", time=False)
 
-    show_output("Collapsing all zeros into one file")   
+    show_output("Collapsing all zeros into one file")
     zero_df = pd.concat(zdfs).drop_duplicates("D").sort_values("D")
 
     # reflat if selected using ZDfactor
     if reflat:
         # reapply the flatten procedure
         show_output(f"Flatten zero file with condense_factor {ZDfactor}")
-        zero_df.loc[:, "D"] = flatten_zeros(
-            zero_df["D"], ZDfactor=ZDfactor
-        )
+        zero_df.loc[:, "D"] = flatten_zeros(zero_df["D"], ZDfactor=ZDfactor)
         # remove the created duplicates
         zero_df = zero_df.drop_duplicates("D").sort_values("D")
     zero0_file = os.path.join(zero_path, f"zero{ponsize}.0.gz")
