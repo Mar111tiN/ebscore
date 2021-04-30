@@ -232,9 +232,7 @@ readData { #@ stream data
     # get the Ref and Alt from the arrays
     ref = POSREF[pos];
     alt = POSALT[pos];
-    ### ########### BASE OUTPUT  ################
-    printf("%s\t%s\t%s\t%s\t%s\t",$1,pos,POSEND[pos],ref,alt);
-
+    end = POSEND[pos];
     # @found stream data matching currentPOS:
     # print data at matching positions 
     # get the right stream column depending on POSALT
@@ -250,6 +248,10 @@ readData { #@ stream data
             altBase = alt;
         }
     } 
+
+    ### ########### BASE OUTPUT  ################
+    # print only after pos has been raised for deletions
+    printf("%s\t%s\t%s\t%s\t%s\t",$1,pos,end,ref,alt);
 
     ####### STREAMDATA
     # store the streamData and Depth
