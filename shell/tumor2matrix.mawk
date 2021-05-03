@@ -274,8 +274,8 @@ readData { #@ stream data
                     PONdepth = $NF; 
                     if (PONexclude) {  #
                         # split the PONData and PONdepth into SData array and retrieve the tumor data
-                        split(PONdata, pdata, "-");
-                        split(PONdepth, pdepth, "-");
+                        split(PONdata, pdata, STRANDSEP);
+                        split(PONdepth, pdepth, STRANDSEP);
                         # assume same structure of data and depth
                         for (strand in pdata) {
                             ponCount = split(pdata[strand], PDATASTRAND, "|");
@@ -317,8 +317,8 @@ readData { #@ stream data
                         }
                         printf("%s\t%s", STRAND[1], STRAND[2]);
                     } else {
-                        split(PONdata, A, "-");
-                        split(PONdepth, D, "-");
+                        split(PONdata, A, STRANDSEP);
+                        split(PONdepth, D, STRANDSEP);
                         printf("%s%s%s\t%s%s%s", A[1], SEP, D[1], A[2], SEP, D[2]);
                     }
                     break;
@@ -332,8 +332,8 @@ readData { #@ stream data
             }
         } else { # PON and tumor are combined in STREAM
             # split the streamData into SData array and retrieve the tumor data
-            split(streamData, sdata, "-");
-            split(streamDepth, sdepth, "-");
+            split(streamData, sdata, STRANDSEP);
+            split(streamDepth, sdepth, STRANDSEP);
             # assume same structure of data and depth
             for (strand in sdata) {
                 ponCount = split(sdata[strand], SDATASTRAND, "|");
@@ -352,7 +352,7 @@ readData { #@ stream data
             ####### DEGUG #######
 
             # print the tumor data as first elements of all arrays
-            printf("%s-%s%s%s-%s\t", SDATA["1-1"], SDATA["2-1"], SEP, SDEPTH["1-1"], SDEPTH["2-1"]);
+            printf("%s%s%s%s%s%s%s\t", SDATA["1-1"], STRANDSEP, SDATA["2-1"], SEP, SDEPTH["1-1"], STRANDSEP, SDEPTH["2-1"]);
 
             # output the rest
             for (strand=0; strand++<2;) {
