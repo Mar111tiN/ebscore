@@ -21,17 +21,22 @@ def get_obs_array(t_pair):
     return np.array([[t_pair[1], s] for s in range(t_pair[0], t_pair[1] + 1)])
 
 
-######### EB2AB ######################
+# ######## EB2AB ######################
 def AB2EB_row(row):
     """
     takes a df containing an AB column of shape "A+|A=B+|B-""
     """
-
+    STRANDSEP = "="
+    ADSEP = "<"
     # get AB params from AB string
-    AB_params = np.array([p.split("|") for p in row["AB"].split("-")]).astype(float)
+    AB_params = np.array([p.split("|") for p in row["AB"].split(STRANDSEP)]).astype(
+        float
+    )
 
     # get tumor matrix from Tumor string
-    t_matrix = np.transpose([p.split("-") for p in row["Tumor"].split("=")]).astype(int)
+    t_matrix = np.transpose(
+        [p.split(STRANDSEP) for p in row["Tumor"].split(ADSEP)]
+    ).astype(int)
 
     # convert tumor matrix in observation arrays
     obs_arrays = [get_obs_array(t_pair) for t_pair in t_matrix]
@@ -64,6 +69,7 @@ def AB2EB(AB_df):
         multi=True,
         color="success",
     )
+
     return AB_df
 
 
@@ -75,7 +81,6 @@ def AB2EB_multi(AB_df, config={"threads": 8}):
     threads = config["threads"]
 
     pool = Pool(threads)
-
     AB_len = len(AB_df.index)
     show_output(f"Starting EBscore computation of {AB_len} using {threads} cores")
 
