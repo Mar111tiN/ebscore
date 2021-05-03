@@ -8,6 +8,11 @@ from script_utils_EB import show_output, run_cmd
 from zerocache import flatten_df, zero2AB, update_zero_file, get_zerostring
 from matrix2AB import matrix2AB
 
+# separator between strands
+STRANDSEP = "="
+# separator between Alt and Depth
+ADSEP = "<"
+
 
 def stackPONmatrix(config, PON_df):
     """
@@ -22,10 +27,10 @@ def stackPONmatrix(config, PON_df):
         .rename({"level_4": "Alt", 0: "tumor"}, axis=1)
     )
     # split left and right
-    df[["DL", "DR"]] = df["Depth"].str.split("-", expand=True)
-    df[["TL", "TR"]] = df["tumor"].str.split("-", expand=True)
-    df["L"] = df["TL"] + "=" + df["DL"]
-    df["R"] = df["TR"] + "=" + df["DR"]
+    df[["DL", "DR"]] = df["Depth"].str.split(STRANDSEP, expand=True)
+    df[["TL", "TR"]] = df["tumor"].str.split(STRANDSEP, expand=True)
+    df["L"] = df["TL"] + ADSEP + df["DL"]
+    df["R"] = df["TR"] + ADSEP + df["DR"]
     # stack left and right
     df = (
         df.loc[:, ["Chr", "Start", "Ref", "Alt", "L", "R"]]
@@ -34,7 +39,8 @@ def stackPONmatrix(config, PON_df):
         .reset_index()
         .rename({"level_4": "strand", 0: "PON"}, axis=1)
     )
-    df[["T", "D"]] = df["PON"].str.split("=", expand=True)
+
+    df[["T", "D"]] = df["PON"].str.split(ADSEP, expand=True)
 
     # reduce cols
     df = df.loc[:, ["Chr", "Start", "Ref", "Alt", "strand", "T", "D"]]
@@ -54,7 +60,7 @@ def unstack_PONAB(stack_df):
         .set_index(["Chr", "Start", "Ref", "Alt", "strand"])
         .unstack("strand")["AB"]
     )
-    unstack_df["AB"] = unstack_df["L"] + "=" + unstack_df["R"]
+    unstack_df["AB"] = unstack_df["L"] + STRANDSEP + unstack_df["R"]
     return (
         unstack_df.loc[:, "AB"]
         .unstack("Alt")
@@ -85,7 +91,7 @@ def PONmatrix2AB_multi(
     config["zerostring"], config["ponsize"] = get_zerostring(stack_df)
 
     # ######### reading AB from zerocache into AB_df
-    stack_df, AB_df = zero2AB(stack_df, config)
+    stack_df, AB_df, useZero = zero2AB(stack_df, config)
     # case all AB have been retrieved from zero2AB
     if stack_df.empty:
         show_output("PON matrix successfully converted!", color="success")
@@ -105,7 +111,11 @@ def PONmatrix2AB_multi(
     AB_pool.close()
 
     # collect AB_dfs + get all the new zeros and write to file
-    new_AB_df = update_zero_file(pd.concat(AB_dfs), config=config)
+
+    new_AB_df = pd.concat(AB_dfs)
+    # check, if zero has been used (or zero_df was smaller then min_zt)
+    if useZero:
+        _ = update_zero_file(new_AB_df, config=config)
 
     AB_df = unstack_PONAB(
         pd.concat([AB_df, new_AB_df]).reset_index(drop=True)

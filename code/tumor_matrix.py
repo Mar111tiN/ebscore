@@ -8,6 +8,10 @@ from script_utils_EB import show_output, run_cmd
 from zerocache import flatten_df, zero2AB, update_zero_file, get_zerostring
 from matrix2AB import matrix2AB
 
+# separator between strands
+STRANDSEP = "="
+# separator between Alt and Depth
+ADSEP = "<"
 
 # ######## compute AB directly from tumor-matrix file
 def stack_tumor_matrix(config, df):
@@ -21,7 +25,7 @@ def stack_tumor_matrix(config, df):
         .reset_index()
         .rename({"level_6": "strand", 0: "PON"}, axis=1)
     )
-    df[["T", "D"]] = df["PON"].str.split("=", expand=True)
+    df[["T", "D"]] = df["PON"].str.split(ADSEP, expand=True)
 
     df.loc[:, ["Chr", "Start", "End", "Ref", "Alt", "Tumor", "strand", "T", "D"]]
     df = flatten_df(df, ZDfactor=config["ZDfactor"])
@@ -39,7 +43,7 @@ def unstack_AB(stackAB_df):
         .set_index(["Chr", "Start", "End", "Ref", "Alt", "Tumor", "strand"])
         .unstack("strand")["AB"]
     )
-    unstack_df["AB"] = unstack_df["PON+"] + "-" + unstack_df["PON-"]
+    unstack_df["AB"] = unstack_df["PON+"] + STRANDSEP + unstack_df["PON-"]
     unstack_df = unstack_df.reset_index(drop=False).sort_values(["Start", "End"])
     return unstack_df.loc[:, ["Chr", "Start", "End", "Ref", "Alt", "Tumor", "AB"]]
 
@@ -72,7 +76,7 @@ def tumor_matrix2AB_multi(
     # store in configs
     config["zerostring"], config["ponsize"] = get_zerostring(stack_df)
     # ######### reading AB from zerocache into AB_df
-    stack_df, AB_df = zero2AB(stack_df, config)
+    stack_df, AB_df, useZero = zero2AB(stack_df, config)
 
     # case all AB have been retrieved from zero2AB
     if stack_df.empty:
@@ -93,7 +97,11 @@ def tumor_matrix2AB_multi(
         AB_pool.close()
 
         # collect AB_dfs + get all the new zeros and write to file
-        new_AB_df = update_zero_file(pd.concat(AB_dfs), config=config)
+
+        new_AB_df = pd.concat(AB_dfs)
+        # check, if zero has been used (or zero_df was smaller then min_zt)
+        if useZero:
+            _ = update_zero_file(new_AB_df, config=config)
 
         AB_df = unstack_AB(
             pd.concat([AB_df, new_AB_df]).reset_index(drop=True)
@@ -102,6 +110,6 @@ def tumor_matrix2AB_multi(
     show_output("Matrix successfully converted!", color="success")
     # bring back the PONmatrix
     AB_df = AB_df.merge(tumor_matrix_df)
-    AB_df.loc[:, "PON"] = AB_df["PON+"] + "-" + AB_df["PON-"]
+    AB_df.loc[:, "PON"] = AB_df["PON+"] + STRANDSEP + AB_df["PON-"]
     # AB_df.loc[:, 'PON'] = AB_df['PON+'].str.split("=").str[0] + "-" + AB_df['PON-'].str.split("=").str[0] + "=" + AB_df['PON+'].str.split("=").str[1] + "-" + AB_df['PON-'].str.split("=").str[1]
     return AB_df.loc[:, ["Chr", "Start", "End", "Ref", "Alt", "Tumor", "PON", "AB"]]

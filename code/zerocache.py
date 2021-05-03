@@ -62,7 +62,8 @@ def zero2AB(stack_df, config):
     zeroT_df = stack_df.loc[stack_df["T"] == config["zerostring"], :].sort_values("D")
     # if zeroT_df is too small, just return stack_df and empty AB_df
     if len(zeroT_df) < config["min_zt"]:
-        return stack_df, pd.DataFrame()
+        useZero = False
+        return stack_df, pd.DataFrame(), useZero
 
     stack_df = stack_df.loc[stack_df["T"] != config["zerostring"], :]
 
@@ -90,7 +91,8 @@ def zero2AB(stack_df, config):
         f"{len(AB_df.index)} matching lines found in zero cache! Computing remaining {len(stack_df.index)} lines.",
         multi=False,
     )
-    return stack_df, AB_df
+    useZero = True
+    return stack_df, AB_df, useZero
 
 
 def update_zero_file(AB_df, config={}):
