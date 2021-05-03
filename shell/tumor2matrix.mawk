@@ -82,7 +82,9 @@ NR == 1 { # @HEADER of mutFile
 
     ### ARGS/GLOBALS #################
     # set the separator between Alt and Depth
-    SEP = "=";
+    SEP = "<";
+    # set the separator between Strands
+    STRANDSEP = "=";
     chrom = "'$2'";
     printMissing = '${printMissing-0}';
     ### PONmatrix #####################
