@@ -41,9 +41,7 @@ def tumor2matrix(mut_file, bam="", pileup="", pon_list="", chrom="", config={}):
             temp_folder,
             f"{base_name}_{chrom}.bed",
         )
-        run_cmd(
-            f"{mawk('csv2bed')} {mut_file} {chrom} > {bed_file}"
-        )
+        run_cmd(f"{mawk('csv2bed')} {mut_file} {chrom} > {bed_file}")
 
         tumor_cmd = f"samtools mpileup -Q {Q} -q {q} -l {bed_file} -f {gsplit}/{chrom}.fa -r {chrom}"
     else:
@@ -52,7 +50,7 @@ def tumor2matrix(mut_file, bam="", pileup="", pon_list="", chrom="", config={}):
             tumor_file = pileup
             tumor_type = "pileup"
             if tumor_file.endswith(".gz"):
-                tumor_cmd = "gunzip < " 
+                tumor_cmd = "gunzip < "
             else:
                 tumor_cmd = f"cat "
             tumor_cmd += f"{tumor_file} | {mawk('cleanpileup')} -s 1"
@@ -89,7 +87,7 @@ def tumor2matrix(mut_file, bam="", pileup="", pon_list="", chrom="", config={}):
         matrix_file = os.path.join(config["pon_path"], f"matrix/{chrom}.pon.gz")
         if os.path.isfile(matrix_file):
             tumor2matrix_cmd += f" -P {matrix_file}"
-        elif (os.path.isfile(matrix_file := matrix_file.replace(".gz", ""))):
+        elif os.path.isfile(matrix_file := matrix_file.replace(".gz", "")):
             tumor2matrix_cmd += f" -P {matrix_file}"
         else:  # did not find the matrix file
             show_output(
@@ -99,14 +97,16 @@ def tumor2matrix(mut_file, bam="", pileup="", pon_list="", chrom="", config={}):
             )
             use_cache = False
         # check if ABcache file is there
-        AB_file = os.path.join(config["pon_path"], f"ABcache/{chrom}.AB.gz")
+        AB_file = os.path.join(config["pon_path"], f"AB/{chrom}.AB.gz")
         # check existence of matrix file
         if os.path.isfile(AB_file):
             tumor2matrix_cmd += f" -A {AB_file}"
-        elif (os.path.isfile(AB_file := AB_file.replace(".gz", ""))):
-            tumor2matrix_cmd += f" -A {AB_file}"       
+        elif os.path.isfile(AB_file := AB_file.replace(".gz", "")):
+            tumor2matrix_cmd += f" -A {AB_file}"
 
-    if use_cache:  # re-check for bam files in case PONmatrix was not found (fallback to pileup of bam+PON)
+    if (
+        use_cache
+    ):  # re-check for bam files in case PONmatrix was not found (fallback to pileup of bam+PON)
         if tumor_type == "bam":
             # just add the bam_file as
             tumor_cmd += f" {tumor_file} | {mawk('cleanpileup')}"
@@ -171,6 +171,6 @@ def PON2matrix(pon_list, chrom, config={}):
     pileup_cmd = f"samtools mpileup -Q {Q} -q {q} -l {bed} -f {gsplit}/{chrom}.fa -b {pon_list_full} -r {chrom}"
 
     pon_matrix_file = os.path.join(matrix_path, f"{chrom}.pon")
-    cmd = f"{pileup_cmd} | {mawk('cleanpileup')} | {mawk('pile2count')} |  gzip  > {pon_matrix_file}.gz"
+    cmd = f"{pileup_cmd} | {mawk('cleanpileup')} | {mawk('pile2count')} | gzip  > {pon_matrix_file}.gz"
     run_cmd(cmd)
     return pon_matrix_file
