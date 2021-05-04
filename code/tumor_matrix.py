@@ -111,6 +111,6 @@ def tumor_matrix2AB_multi(
     show_output("Matrix successfully converted!", color="success")
     # bring back the PONmatrix
     AB_df = AB_df.merge(tumor_matrix_df)
-    AB_df.loc[:, "PON"] = AB_df["PON+"] + STRANDSEP + AB_df["PON-"]
+
     # AB_df.loc[:, 'PON'] = AB_df['PON+'].str.split("=").str[0] + "-" + AB_df['PON-'].str.split("=").str[0] + "=" + AB_df['PON+'].str.split("=").str[1] + "-" + AB_df['PON-'].str.split("=").str[1]
-    return AB_df.loc[:, ["Chr", "Start", "End", "Ref", "Alt", "Tumor", "PON", "AB"]]
+    return AB_df.loc[:, ["Chr", "Start", "End", "Ref", "Alt", "Tumor", "PON+", "PON-", "AB"]]
