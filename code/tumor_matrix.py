@@ -56,6 +56,7 @@ def tumor_matrix2AB_multi(
         "zero_path": "zero",
         "ZDfactor": 13,
         "min_zt": 1000,
+        "chunksize": 20000
     },
 ):
     """
