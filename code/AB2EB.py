@@ -29,9 +29,13 @@ def AB2EB_row(row):
     STRANDSEP = "="
     ADSEP = "<"
     # get AB params from AB string
-    AB_params = np.array([p.split("|") for p in row["AB"].split(STRANDSEP)]).astype(
-        float
-    )
+    try:
+        AB_params = np.array([p.split("|") for p in row["AB"].split(STRANDSEP)]).astype(
+            float
+        )
+    except:
+        # if there is no coverage on PON --> EB=0
+        return 0
 
     # get tumor matrix from Tumor string
     t_matrix = np.transpose(
@@ -63,6 +67,10 @@ def AB2EB(AB_df):
         f"Computing EBscore for {len(AB_df.index)} lines!",
         multi=True,
     )
+
+    ###### sometimes there is no PON data making AB empty
+    # fix: try except in AB2EB_row (applied)
+    # or maybe better: only running on AB_df.query("AB == AB") and setting defaults for EB and PON+ PON- here
     AB_df["EB"] = AB_df.apply(AB2EB_row, axis=1)
     show_output(
         f"EB computation finished",
