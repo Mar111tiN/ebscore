@@ -56,7 +56,7 @@ def tumor_matrix2AB_multi(
         "zero_path": "zero",
         "ZDfactor": 13,
         "min_zt": 1000,
-        "chunksize": 20000
+        "chunksize": 20000,
     },
 ):
     """
@@ -113,4 +113,6 @@ def tumor_matrix2AB_multi(
     AB_df = AB_df.merge(tumor_matrix_df)
 
     # AB_df.loc[:, 'PON'] = AB_df['PON+'].str.split("=").str[0] + "-" + AB_df['PON-'].str.split("=").str[0] + "=" + AB_df['PON+'].str.split("=").str[1] + "-" + AB_df['PON-'].str.split("=").str[1]
-    return AB_df.loc[:, ["Chr", "Start", "End", "Ref", "Alt", "Tumor", "PON+", "PON-", "AB"]]
+    return AB_df.loc[
+        :, ["Chr", "Start", "End", "Ref", "Alt", "Tumor", "PON+", "PON-", "AB"]
+    ]

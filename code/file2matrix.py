@@ -7,7 +7,9 @@ from script_utils_EB import show_output, cmd2df, run_cmd
 # here come all the functions involved in converting raw data (bam or pileup) to dataframes
 
 
-def tumor2matrix(mut_file, bam="", pileup="", pon_list="", chrom="", config={}):
+def tumor2matrix(
+    mut_file, bam="", pileup="", cleanpileup="", pon_list="", chrom="", config={}
+):
     """
     converts the bam_file and the Pon-bams into a matrix for EB computations
     does all the work behind the curtain:
@@ -44,22 +46,31 @@ def tumor2matrix(mut_file, bam="", pileup="", pon_list="", chrom="", config={}):
         run_cmd(f"{mawk('csv2bed')} {mut_file} {chrom} > {bed_file}")
 
         tumor_cmd = f"samtools mpileup -Q {Q} -q {q} -l {bed_file} -f {gsplit}/{chrom}.fa -r {chrom}"
-    else:
-        if pileup:
-            # for pileup, use the pileup file and only use first read (if mpileup comes from tumor-normal)
-            tumor_file = pileup
-            tumor_type = "pileup"
-            if tumor_file.endswith(".gz"):
-                tumor_cmd = "gunzip < "
-            else:
-                tumor_cmd = f"cat "
-            tumor_cmd += f"{tumor_file} | {mawk('cleanpileup')} -s 1"
+    elif pileup:
+        # for pileup, use the pileup file and only use first read (if mpileup comes from tumor-normal)
+        tumor_file = pileup
+        tumor_type = "pileup"
+        if tumor_file.endswith(".gz"):
+            tumor_cmd = "gunzip < "
         else:
-            show_output(
-                "Neither bam nor pileup file is given! Either is required!",
-                color="warning",
-                multi=False,
-            )
+            tumor_cmd = "cat "
+        tumor_cmd += f"{tumor_file} | {mawk('cleanpileup')} -s 2"
+    elif cleanpileup:
+        tumor_file = cleanpileup
+        tumor_type = "pileup"
+        if tumor_file.endswith(".gz"):
+            tumor_cmd = "gunzip < "
+        else:
+            tumor_cmd = "cat "
+        # mawk snippet to convert
+        mawk_cmd = 'BEGIN{OFS="\\t"}$7~/[ATCGatcg]/{print($1,$2,$3,$7)}'
+        tumor_cmd += f"{tumor_file} | mawk '{mawk_cmd}'"
+    else:
+        show_output(
+            "Neither bam nor pileup file is given! Either is required!",
+            color="warning",
+            multi=False,
+        )
 
     # PON file
     # find out whether bam/pileup is contained in pon_list

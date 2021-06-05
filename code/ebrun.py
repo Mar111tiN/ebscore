@@ -11,6 +11,7 @@ def run_ebscore(
     mut_file,
     tumor_bam="",
     pileup_file="",
+    cleanpileup="",
     output_file="",
     pon_list="",
     chrom="",
@@ -36,7 +37,7 @@ def run_ebscore(
     """
 
     # ############## LOAD DATA ###############################
-    tumor_file = tumor_bam if tumor_bam else pileup_file
+    tumor_file = tumor_bam if tumor_bam else pileup_file if pileup_file else cleanpileup
     debug = config["debug"]
 
     show_output(f"Computing EBscore for chrom {chrom} on target {tumor_file}")
@@ -47,6 +48,7 @@ def run_ebscore(
         mut_file,
         bam=tumor_bam,
         pileup=pileup_file,
+        cleanpileup=cleanpileup,
         chrom=chrom,
         pon_list=pon_list,
         config=config,

@@ -69,7 +69,13 @@ def zero2AB(stack_df, config):
 
     # load the zerofiles and merge incrementally to save memory
     AB_dfs = []
-    for zfile in load_zero_list(config["zero_path"], config["ponsize"])[0]:
+    zlist = load_zero_list(config["zero_path"], config["ponsize"])[0]
+    if not len(zlist):
+        useZero = False
+        show_output(f"No zero files found in {config['zero_path']}", color="warning")
+        return stack_df, pd.DataFrame(), useZero
+
+    for zfile in zlist:
         try:
             zgen = pd.read_csv(
                 zfile, sep="\t", compression="gzip", chunksize=config["chunksize"]
@@ -82,6 +88,12 @@ def zero2AB(stack_df, config):
                 zeroT_df = merge_df.query("AB != AB").drop("AB", axis=1)
         except Exception as e:
             show_output(f"{zfile} could not be loaded, {e}", color="warning")
+    if not len(AB_dfs):
+        useZero = False
+        show_output(
+            f"No zero files could be loaded from {config['zero_path']}", color="warning"
+        )
+        return stack_df, pd.DataFrame(), useZero
 
     AB_df = pd.concat(AB_dfs)
 
