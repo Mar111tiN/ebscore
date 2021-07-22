@@ -163,15 +163,15 @@ def flatten_df(df, ZDfactor=13):
     # get the zerostring
     # reduce zeros with condense_factor
     zerostring = get_zerostring(df)
-
+    df1 = df.copy()
     # sort the depths at tumor == zero and reduce zero_complexity via flatten_zero
-    df.loc[df["T"] == zerostring, "D"] = flatten_zeros(
-        df.loc[df["T"] == zerostring, "D"], ZDfactor
+    df1.loc[df1["T"] == zerostring, "D"] = flatten_zeros(
+        df1.loc[df1["T"] == zerostring, "D"], ZDfactor
     )
-    return df
+    return df1
 
 
-def collapse_zeros(zero_path, ponsize=10, reflat=False, ZDfactor=13):
+def collapse_zeros(zero_path, ponsize=10, reflat=True, ZDfactor=13):
     """
     reduces all zero_files to zero.0.csv
     """
@@ -215,6 +215,9 @@ def collapse_zeros(zero_path, ponsize=10, reflat=False, ZDfactor=13):
         # remove the created duplicates
         zero_df = zero_df.drop_duplicates("D").sort_values("D")
     zero0_file = os.path.join(zero_path, f"zero{ponsize}.0.gz")
+    show_output(
+        f"Writing zero file ({len(zero_df.index)} lines) to {zero_path}/{zero0_file}"
+    )
     zero_df.to_csv(
         zero0_file,
         sep="\t",
@@ -222,7 +225,7 @@ def collapse_zeros(zero_path, ponsize=10, reflat=False, ZDfactor=13):
         compression="gzip",
     )
     show_output(
-        f"Written collapsed zerofile ({len(zero_df.index)} lines) to {zero_path}/{zero0_file}",
+        f"Written collapsed zerofile to {zero_path}/{zero0_file}",
         color="success",
     )
     for file in zero_files:
