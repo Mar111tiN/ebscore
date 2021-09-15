@@ -17,6 +17,8 @@ NR==1 {
     # get the ref-base
     base = $3;
     BASECOLS = 3; # how many columns left of the pileup reads
+    # set the separator between Strands
+    SEP = "=";
     sampleCount = NF - BASECOLS;
     ###### QUERY ##############
     # get the letters to look for
@@ -63,7 +65,7 @@ NR==1 {
             for (r=1;r++<sampleCount;){
                 printf("|%s", COUNT[strand "-" r "-"l]);
             }
-            if (strand==1) printf("-")
+            if (strand==1) printf(SEP)
         }
         printf("\t")
     }
@@ -73,7 +75,7 @@ NR==1 {
         for (r=1;r++<sampleCount;){
             printf("|%s", DEPTH[strand "-" r]);
         }
-        if (strand==1) printf("-")
+        if (strand==1) printf(SEP)
     }
     delete DEPTH
     printf("\n");

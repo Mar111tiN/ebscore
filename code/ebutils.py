@@ -31,7 +31,7 @@ def get_pon(file, pon_list, pon_path="", prepend_bam=False):
     pon_df.loc[:, "basename"] = pon_df["bam"].str.split("/").str[-1]
     pon_df["sample"] = (
         pon_df["basename"]
-        .str.replace(".bam", "")
+        .str.replace(".bam", "", regex=False)
         .str.split("_", expand=True)[0]
         .str.lstrip("0")
     )

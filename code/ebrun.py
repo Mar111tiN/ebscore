@@ -11,40 +11,44 @@ def run_ebscore(
     mut_file,
     tumor_bam="",
     pileup_file="",
+    cleanpileup="",
     output_file="",
     pon_list="",
     chrom="",
-    config={
-        "temp_dir": "temp",
-        "pon_path": ".",
-        "mawk_path": "./shell",
-        "genome_split": "",
-        "MAPQ": 20,
-        "Q": 25,
-        "fit_pen": 0.5,
-        "AB_chunksize": 500,
-        "ZDfactor": 13,
-        "threads": 8,
-        "use_cache": True,
-        "debug": False,
-    },
+    config=dict(
+        debug=False,
+        threads=8,
+        use_cache=True,
+        mawk_path="./shell",  # path relative to
+        temp_dir="temp",
+        pon_path=".",
+        zero_path="./zero",
+        genome_split="",
+        MAPQ=20,  # params for pileup
+        Q=25,  # params for pileup
+        fit_pen=0.5,  # fitting penalty for beta_binomial parameter finding
+        chunksize=5000,  # size of zero splits for zerocaching
+        ZDFactor=13,  # how much complexity remains after flattening the tumor-zero lines
+        min_zt=1000,  # minimum number of Tzero lines to bother with zero cache
+    ),
 ):
     """
     master function for eb_computation
     """
 
     # ############## LOAD DATA ###############################
-    tumor_file = tumor_bam if tumor_bam else pileup_file
+    tumor_file = tumor_bam if tumor_bam else pileup_file if pileup_file else cleanpileup
     debug = config["debug"]
 
     show_output(f"Computing EBscore for chrom {chrom} on target {tumor_file}")
 
-    ############### bam2matrix #######################
-    show_output(f"Retrieving tumor data and PONmatrix", time=False)
+    # ############## bam2matrix #######################
+    show_output("Retrieving tumor data and PONmatrix", time=False)
     matrix_df = tumor2matrix(
         mut_file,
         bam=tumor_bam,
         pileup=pileup_file,
+        cleanpileup=cleanpileup,
         chrom=chrom,
         pon_list=pon_list,
         config=config,
@@ -55,15 +59,15 @@ def run_ebscore(
 
     # check if matrix_df is empty
     if matrix_df.empty:
-        show_output(f"Something went wrong - created empty matrix file!")
+        show_output("Something went wrong - created empty matrix file!")
         if debug:
             show_output(
                 f"Created empty file {matrix_file}", color="warning", time=False
             )
         return
 
-    ########### ABparams ############################
-    ## check for ABparams and compute if necessary
+    # ########## ABparams ############################
+    # # check for ABparams and compute if necessary
     if "AB" in matrix_df.columns:
         show_output(
             f"PONmatrix and AB computation on chrom {chrom} of {tumor_file} finished. Used ABcache!",
@@ -76,13 +80,13 @@ def run_ebscore(
             color="success",
         )
         AB_df = tumor_matrix2AB_multi(matrix_df, config=config)
-        show_output(f"Computing ABparams finished.", color="success")
+        show_output("Computing ABparams finished.", color="success")
         if debug:
             AB_file = f"{os.path.splitext(output_file)[0]}.AB"
-            df.to_csv(AB_file, sep="\t", index=False)
+            AB_df.to_csv(AB_file, sep="\t", index=False)
 
     # ######### AB2EB ################################
-    show_output(f"Computing EBscore from ABparams", time=False)
+    show_output("Computing EBscore from ABparams", time=False)
     EB_df = AB2EB_multi(AB_df, config=config).drop(["AB", "Tumor"], axis=1)
 
     # ######### WRITE TO FILE ##############################################

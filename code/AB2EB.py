@@ -21,17 +21,26 @@ def get_obs_array(t_pair):
     return np.array([[t_pair[1], s] for s in range(t_pair[0], t_pair[1] + 1)])
 
 
-######### EB2AB ######################
+# ######## EB2AB ######################
 def AB2EB_row(row):
     """
     takes a df containing an AB column of shape "A+|A=B+|B-""
     """
-
+    STRANDSEP = "="
+    ADSEP = "<"
     # get AB params from AB string
-    AB_params = np.array([p.split("|") for p in row["AB"].split("-")]).astype(float)
+    try:
+        AB_params = np.array([p.split("|") for p in row["AB"].split(STRANDSEP)]).astype(
+            float
+        )
+    except:
+        # if there is no coverage on PON --> EB=0
+        return 0
 
     # get tumor matrix from Tumor string
-    t_matrix = np.transpose([p.split("-") for p in row["Tumor"].split("=")]).astype(int)
+    t_matrix = np.transpose(
+        [p.split(STRANDSEP) for p in row["Tumor"].split(ADSEP)]
+    ).astype(int)
 
     # convert tumor matrix in observation arrays
     obs_arrays = [get_obs_array(t_pair) for t_pair in t_matrix]
@@ -58,12 +67,17 @@ def AB2EB(AB_df):
         f"Computing EBscore for {len(AB_df.index)} lines!",
         multi=True,
     )
+
+    ###### sometimes there is no PON data making AB empty
+    # fix: try except in AB2EB_row (applied)
+    # or maybe better: only running on AB_df.query("AB == AB") and setting defaults for EB and PON+ PON- here
     AB_df["EB"] = AB_df.apply(AB2EB_row, axis=1)
     show_output(
         f"EB computation finished",
         multi=True,
         color="success",
     )
+
     return AB_df
 
 
@@ -75,7 +89,6 @@ def AB2EB_multi(AB_df, config={"threads": 8}):
     threads = config["threads"]
 
     pool = Pool(threads)
-
     AB_len = len(AB_df.index)
     show_output(f"Starting EBscore computation of {AB_len} using {threads} cores")
 

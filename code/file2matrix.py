@@ -7,7 +7,9 @@ from script_utils_EB import show_output, cmd2df, run_cmd
 # here come all the functions involved in converting raw data (bam or pileup) to dataframes
 
 
-def tumor2matrix(mut_file, bam="", pileup="", pon_list="", chrom="", config={}):
+def tumor2matrix(
+    mut_file, bam="", pileup="", cleanpileup="", pon_list="", chrom="", config={}
+):
     """
     converts the bam_file and the Pon-bams into a matrix for EB computations
     does all the work behind the curtain:
@@ -44,22 +46,31 @@ def tumor2matrix(mut_file, bam="", pileup="", pon_list="", chrom="", config={}):
         run_cmd(f"{mawk('csv2bed')} {mut_file} {chrom} > {bed_file}")
 
         tumor_cmd = f"samtools mpileup -Q {Q} -q {q} -l {bed_file} -f {gsplit}/{chrom}.fa -r {chrom}"
-    else:
-        if pileup:
-            # for pileup, use the pileup file and only use first read (if mpileup comes from tumor-normal)
-            tumor_file = pileup
-            tumor_type = "pileup"
-            if tumor_file.endswith(".gz"):
-                tumor_cmd = "gunzip < "
-            else:
-                tumor_cmd = f"cat "
-            tumor_cmd += f"{tumor_file} | {mawk('cleanpileup')} -s 1"
+    elif pileup:
+        # for pileup, use the pileup file and only use first read (if mpileup comes from tumor-normal)
+        tumor_file = pileup
+        tumor_type = "pileup"
+        if tumor_file.endswith(".gz"):
+            tumor_cmd = "gunzip < "
         else:
-            show_output(
-                "Neither bam nor pileup file is given! Either is required!",
-                color="warning",
-                multi=False,
-            )
+            tumor_cmd = "cat "
+        tumor_cmd += f"{tumor_file} | {mawk('cleanpileup')} -s 2"
+    elif cleanpileup:
+        tumor_file = cleanpileup
+        tumor_type = "pileup"
+        if tumor_file.endswith(".gz"):
+            tumor_cmd = "gunzip < "
+        else:
+            tumor_cmd = "cat "
+        # mawk snippet to convert
+        mawk_cmd = 'BEGIN{OFS="\\t"}$7~/[ATCGatcg]/{print($1,$2,$3,$7)}'
+        tumor_cmd += f"{tumor_file} | mawk '{mawk_cmd}'"
+    else:
+        show_output(
+            "Neither bam nor pileup file is given! Either is required!",
+            color="warning",
+            multi=False,
+        )
 
     # PON file
     # find out whether bam/pileup is contained in pon_list
@@ -97,7 +108,7 @@ def tumor2matrix(mut_file, bam="", pileup="", pon_list="", chrom="", config={}):
             )
             use_cache = False
         # check if ABcache file is there
-        AB_file = os.path.join(config["pon_path"], f"ABcache/{chrom}.AB.gz")
+        AB_file = os.path.join(config["pon_path"], f"AB/{chrom}.AB.gz")
         # check existence of matrix file
         if os.path.isfile(AB_file):
             tumor2matrix_cmd += f" -A {AB_file}"
@@ -171,6 +182,6 @@ def PON2matrix(pon_list, chrom, config={}):
     pileup_cmd = f"samtools mpileup -Q {Q} -q {q} -l {bed} -f {gsplit}/{chrom}.fa -b {pon_list_full} -r {chrom}"
 
     pon_matrix_file = os.path.join(matrix_path, f"{chrom}.pon")
-    cmd = f"{pileup_cmd} | {mawk('cleanpileup')} | {mawk('pile2count')} |  gzip  > {pon_matrix_file}.gz"
+    cmd = f"{pileup_cmd} | {mawk('cleanpileup')} | {mawk('pile2count')} | gzip  > {pon_matrix_file}.gz"
     run_cmd(cmd)
     return pon_matrix_file
