@@ -85,13 +85,14 @@ def PONmatrix2AB_multi(
     stack_df = pd.concat(dfs)
     stack_pool.close()
     show_output("PON matrix has been stacked")
-
+    # print(stack_df[:100])
     # retrieve the zerostring and ponsize from the panel of normals of first row
     # store in configs
     config["zerostring"], config["ponsize"] = get_zerostring(stack_df)
 
     # ######### reading AB from zerocache into AB_df
-    stack_df, AB_df, useZero = zero2AB(stack_df, config)
+    stack_df, AB_df = zero2AB(stack_df, config)
+
     # case all AB have been retrieved from zero2AB
     if stack_df.empty:
         show_output("PON matrix successfully converted!", color="success")
@@ -113,9 +114,9 @@ def PONmatrix2AB_multi(
     # collect AB_dfs + get all the new zeros and write to file
 
     new_AB_df = pd.concat(AB_dfs)
+
     # check, if zero has been used (or zero_df was smaller then min_zt)
-    if useZero:
-        _ = update_zero_file(new_AB_df, config=config)
+    _ = update_zero_file(new_AB_df, config=config)
 
     AB_df = unstack_PONAB(
         pd.concat([AB_df, new_AB_df]).reset_index(drop=True)

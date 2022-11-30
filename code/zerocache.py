@@ -61,20 +61,18 @@ def zero2AB(stack_df, config):
     # split off the zeroT_df
     zeroT_df = stack_df.loc[stack_df["T"] == config["zerostring"], :].sort_values("D")
     # if zeroT_df is too small, just return stack_df and empty AB_df
-    if len(zeroT_df) < config["min_zt"]:
-        useZero = False
-        return stack_df, pd.DataFrame(), useZero
 
-    stack_df = stack_df.loc[stack_df["T"] != config["zerostring"], :]
+    if len(zeroT_df) < config["min_zt"]:
+        return stack_df, pd.DataFrame()
 
     # load the zerofiles and merge incrementally to save memory
     AB_dfs = []
     zlist = load_zero_list(config["zero_path"], config["ponsize"])[0]
     if not len(zlist):
-        useZero = False
         show_output(f"No zero files found in {config['zero_path']}", color="warning")
-        return stack_df, pd.DataFrame(), useZero
-
+        return stack_df, pd.DataFrame()
+    # if we go ahead with zeroT_df, stack_df is reduced to non-zero locations
+    stack_df = stack_df.loc[stack_df["T"] != config["zerostring"], :]
     for zfile in zlist:
         try:
             zgen = pd.read_csv(
@@ -89,11 +87,10 @@ def zero2AB(stack_df, config):
         except Exception as e:
             show_output(f"{zfile} could not be loaded, {e}", color="warning")
     if not len(AB_dfs):
-        useZero = False
         show_output(
             f"No zero files could be loaded from {config['zero_path']}", color="warning"
         )
-        return stack_df, pd.DataFrame(), useZero
+        return stack_df, pd.DataFrame()
 
     AB_df = pd.concat(AB_dfs)
 
@@ -103,8 +100,8 @@ def zero2AB(stack_df, config):
         f"{len(AB_df.index)} matching lines found in zero cache! Computing remaining {len(stack_df.index)} lines.",
         multi=False,
     )
-    useZero = True
-    return stack_df, AB_df, useZero
+
+    return stack_df, AB_df
 
 
 def update_zero_file(AB_df, config={}):
