@@ -1,6 +1,6 @@
 #!/bin/sh
 
-# filterEB v1.3
+# tumor2matrix v1.4
 
 # powerhorse for EBraw data output:
 # collects tumor (and optionally PONbam pileup) and combines it with PONcache and ABcache data
@@ -136,6 +136,11 @@ NR == 1 { # @HEADER of mutFile
                 ABfile = "none";
             } else {                   
                 printf("<tumor2matrix> Using ABcache %s.\n", ABfile) > "/dev/stderr";
+                # get the col numbers for the vars from the AB header into ABCOL array
+                # COL["A"] = 4 etc...
+                for (col=0; col++<NF;) {
+                    ABCOL[$col] = col;
+                }
             }
         }
     }
@@ -379,7 +384,7 @@ readData { #@ stream data
     if (ABfile != "none") {
         while ((ABcmd | getline) > 0) { # check for end of file
             if ($2 == currentPOS) { # found position in Gstream 
-                ABdata = $(COL[altBase]);
+                ABdata = $(ABCOL[altBase]);
                 printf("\t%s", ABdata);
                 break;
             }
