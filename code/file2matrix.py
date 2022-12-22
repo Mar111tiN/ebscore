@@ -31,8 +31,8 @@ def tumor2matrix(
     use_cache = config["use_cache"]
     # check the temp_folder with default pon_path/temp
     temp_folder = config.get("temp_dir", os.path.join(pon_path, "temp"))
-    if not os.path.isdir(temp_folder):
-        os.mkdir(temp_folder)
+    os.makedirs(temp_folder, exist_ok=True)
+        
 
     if bam:
         tumor_file = bam
@@ -163,13 +163,12 @@ def PON2matrix(pon_list, chrom, config={}):
     bed = config["bed_file"]
 
     matrix_path = os.path.join(pon_path, "matrix")
-    if not os.path.isdir(matrix_path):
-        os.mkdir(matrix_path)
+    os.makedirs(matrix_path, exist_ok=True)
+        
 
     # check the temp_folder with default pon_path/temp
     temp_folder = config.get("temp_dir", os.path.join(pon_path, "temp"))
-    if not os.path.isdir(temp_folder):
-        os.mkdir(temp_folder)
+    os.makedirs(temp_folder, exist_ok=True)
     pon_list_full = os.path.join(config["temp_dir"], f"full_{pon_list}")
 
     # create the pon_list with full path
