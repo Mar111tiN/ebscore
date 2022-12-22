@@ -59,12 +59,13 @@ def run_ebscore(
 
     # check if matrix_df is empty
     if matrix_df.empty:
-        show_output("Something went wrong - created empty matrix file!")
+        show_output("Something went wrong/No mutations in mutfile - created empty matrix file!")
         if debug:
             show_output(
                 f"Created empty file {matrix_file}", color="warning", time=False
             )
-        return
+        pd.DataFrame().to_csv(output_file, sep="\t", index=False)
+        return pd.DataFrame()
 
     # ########## ABparams ############################
     # # check for ABparams and compute if necessary
