@@ -66,7 +66,6 @@ def run_ebscore(
             )
         pd.DataFrame().to_csv(output_file, sep="\t", index=False)
         return pd.DataFrame()
-
     # ########## ABparams ############################
     # # check for ABparams and compute if necessary
     if "AB" in matrix_df.columns:
@@ -89,7 +88,9 @@ def run_ebscore(
     # ######### AB2EB ################################
     show_output("Computing EBscore from ABparams", time=False)
     EB_df = AB2EB_multi(AB_df, config=config).drop(["AB", "Tumor"], axis=1)
-
+    if len(indf := EB_df.query('Alt == "-" or Ref == "-"')):
+        show_output("Indels detected:", time=False)
+        show_output(indf, time=False)
     # ######### WRITE TO FILE ##############################################
     if output_file:
         EB_df.to_csv(output_file, sep="\t", index=False)
