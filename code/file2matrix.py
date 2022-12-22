@@ -181,7 +181,7 @@ def PON2matrix(pon_list, chrom, config={}):
 
     pileup_cmd = f"samtools mpileup -Q {Q} -q {q} -l {bed} -f {gsplit}/{chrom}.fa -b {pon_list_full} -r {chrom}"
 
-    pon_matrix_file = os.path.join(matrix_path, f"{chrom}.pon")
-    cmd = f"{pileup_cmd} | {mawk('cleanpileup')} | {mawk('pile2count')} | gzip  > {pon_matrix_file}.gz"
+    pon_matrix_file = os.path.join(matrix_path, f"{chrom}.pon.gz")
+    cmd = f"{pileup_cmd} | {mawk('cleanpileup')} | {mawk('pile2count')} | gzip  > {pon_matrix_file}"
     run_cmd(cmd)
     return pon_matrix_file

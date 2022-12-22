@@ -120,6 +120,6 @@ def PONmatrix2AB_multi(
 
     AB_df = unstack_PONAB(
         pd.concat([AB_df, new_AB_df]).reset_index(drop=True)
-    ).sort_values(["Start"])
+    ).sort_values(["Start"]).loc[:, list("AGCTID")]
     show_output("PON matrix successfully converted!", color="success")
     return AB_df
