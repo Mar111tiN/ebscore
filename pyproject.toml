@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ebscore"
+dynamic = ["version"]
+description = "EB artifact score of somatic variants against a pileup Panel of Normals (PONmatrix)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["numpy>=1.24", "pandas>=2.0", "scipy>=1.10"]
+
+[project.scripts]
+ebscore = "ebscore.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "ebscore.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+ebscore = ["mawk/*.mawk"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

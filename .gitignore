@@ -1,7 +1,10 @@
-testpon/
-data/
-output/
-__pycache__
-.ipynb_checkpoints
-.DS_Store
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.pytest_cache/
 .ipynb_checkpoints/
+.DS_Store
+testpon/
+output/
