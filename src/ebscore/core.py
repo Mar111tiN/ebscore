@@ -1,10 +1,10 @@
 """Beta-binomial core of the EB score (the Genomon EBFilter / EBCall math, github.com/friend1ws/EBCall).
 
 Per strand, a beta-binomial (a, b) is fitted to the PON (depth, alt) pairs. The fit maximises the log-likelihood
-minus a penalty ``penalty * ln(a + b)`` with L-BFGS-B (start [20, 20], a in [0.1, 1e7], b in [1, 1e7]); the default
-``exact`` method uses the analytic gradient and restarts until the point is stationary (see ``fit_bb``).
-The tumor p-value per strand is the upper tail P(X >= alt | depth, a, b). Both strands are combined with Fisher's
-method (chi2, 4 degrees of freedom), and EB = -log10(p), capped at 60.
+minus a penalty ``penalty * ln(a + b)`` with L-BFGS-B (start [20, 20], a in [0.1, 1e7], b in [1, 1e7]), using the
+analytic gradient and restarting until the point is stationary (see ``fit_bb``). The tumor p-value per strand is the
+upper tail P(X >= alt | depth, a, b). Both strands are combined with Fisher's method (chi2, 4 degrees of freedom),
+and EB = -log10(p), capped at 60.
 """
 
 from __future__ import annotations
@@ -28,11 +28,18 @@ FIT_START = [20, 20]
 FIT_BOUNDS = [(0.1, 10000000), (1, 10000000)]
 EB_MAX = 60.0
 
+# settings of one L-BFGS-B run, the stationarity test and the restart budget
+EXACT_OPTIONS = dict(factr=10.0, pgtol=1e-10, maxiter=100000, maxfun=100000)
+STATIONARY_TOL = 1e-3  # max |projected gradient_i| * max(|x_i|, 1); converged fits are <= 1e-4, false stops >= 1
+MAX_RESTARTS = 5
+FALLBACK_STARTS = ([1.0, 1.0], [0.1, 100.0], [1.0, 1000.0])  # tried only if FIT_START never gets stationary
+AB_DIGITS = 6  # fits are rounded to 6 significant digits
+
 
 def bb_loglikelihood(params, count_matrix: np.ndarray) -> float:
     """Summed beta-binomial log-likelihood of an N x 2 array of [depth, alt] pairs (or one pair, shape (2,)).
 
-    Kept exactly as in the legacy code so that fitted parameters stay comparable.
+    The same terms as the legacy code (KS_MATRIX / GAMMA_REDUCE).
     """
     a, b = params
     ab_matrix = np.array([1, 1, 1, a + b, a, b, a + b, a, b])
@@ -48,7 +55,7 @@ def _fit_objective(params, count_matrix, penalty):
 
 
 def _fit_objective_grad(params, count_matrix, penalty):
-    """Objective and its analytic gradient (digamma terms), used by the exact fit."""
+    """Objective and its analytic gradient (digamma terms)."""
     a, b = params
     n = count_matrix[:, 0].astype(float)
     k = count_matrix[:, 1].astype(float)
@@ -58,14 +65,6 @@ def _fit_objective_grad(params, count_matrix, penalty):
     d_b = np.sum(digamma(n - k + b) - digamma(b)) + common
     pen = penalty / (a + b)
     return value, np.array([pen - d_a, pen - d_b])
-
-
-FIT_METHODS = ("exact", "legacy")
-# exact fit: settings of one L-BFGS-B run, the stationarity test and the restart budget
-EXACT_OPTIONS = dict(factr=10.0, pgtol=1e-10, maxiter=100000, maxfun=100000)
-STATIONARY_TOL = 1e-3  # max |projected gradient_i| * max(|x_i|, 1); converged fits are <= 1e-4, false stops >= 1
-MAX_RESTARTS = 5
-AB_DIGITS = 6  # exact fits are rounded to 6 significant digits (legacy: 5 decimals)
 
 
 def projected_gradient(params, grad) -> np.ndarray:
@@ -96,51 +95,50 @@ def round_sig(x: float, digits: int = AB_DIGITS) -> float:
     return float(f"{x:.{digits}g}")
 
 
-def _fit_legacy(cm, penalty) -> np.ndarray:
-    return fmin_l_bfgs_b(_fit_objective, FIT_START, args=(cm, penalty), approx_grad=True, bounds=FIT_BOUNDS)[0]
-
-
-def _fit_exact(cm, penalty) -> np.ndarray:
-    """L-BFGS-B with the analytic gradient, restarted from its own result until the point is stationary.
-
-    One L-BFGS-B run can report convergence ("REL_REDUCTION_OF_F") at a point whose gradient is far from 0, mostly
-    on low-depth vectors with sparse alts, with any scipy version. A restart (fresh curvature memory) moves on to the
-    optimum. If the point is still not stationary after MAX_RESTARTS, the better of it and the legacy fit is used.
-    """
-    x = np.array(FIT_START, dtype=float)
+def _lbfgsb_until_stationary(cm, penalty, start) -> tuple[np.ndarray, bool]:
+    """L-BFGS-B with the analytic gradient from ``start``, restarted from its own result until stationary."""
+    x = np.array(start, dtype=float)
     for _ in range(1 + MAX_RESTARTS):
         x, _, info = fmin_l_bfgs_b(_fit_objective_grad, x, args=(cm, penalty), bounds=FIT_BOUNDS, **EXACT_OPTIONS)
         if _scaled_pg(x, info["grad"]) <= STATIONARY_TOL:
-            return x
-    log.debug("exact fit not stationary after %d restarts; comparing with the legacy fit", MAX_RESTARTS)
-    old = _fit_legacy(cm, penalty)
-    return old if _fit_objective(old, cm, penalty) < _fit_objective(x, cm, penalty) else x
+            return x, True
+    return x, False
 
 
-def fit_bb(count_matrix: np.ndarray, penalty: float = 0.5, method: str = "exact") -> tuple[float, float]:
+def _fit_exact(cm, penalty) -> np.ndarray:
+    """The penalised optimum: L-BFGS-B from FIT_START with restarts; if that never gets stationary, the best point
+    of all FALLBACK_STARTS (each with restarts).
+
+    One L-BFGS-B run can report convergence ("REL_REDUCTION_OF_F") at a point whose gradient is far from 0, mostly
+    on low-depth vectors with sparse alts, with any scipy version; a restart (fresh curvature memory) moves on.
+    """
+    x, ok = _lbfgsb_until_stationary(cm, penalty, FIT_START)
+    if ok:
+        return x
+    log.debug("fit not stationary after %d restarts; trying %d other starts", MAX_RESTARTS, len(FALLBACK_STARTS))
+    best, f_best = x, _fit_objective(x, cm, penalty)
+    for start in FALLBACK_STARTS:
+        y, _ = _lbfgsb_until_stationary(cm, penalty, start)
+        f_y = _fit_objective(y, cm, penalty)
+        if f_y < f_best:
+            best, f_best = y, f_y
+    return best
+
+
+def fit_bb(count_matrix: np.ndarray, penalty: float = 0.5) -> tuple[float, float]:
     """Penalised maximum-likelihood (a, b) for an N x 2 array of PON [depth, alt] pairs.
 
-    method="exact" (default): analytic gradient, tight tolerances and a stationarity check with restarts, so the
-    result is the penalised optimum (projected gradient about 0), rounded to 6 significant digits. It is not
-    bit-identical across scipy versions: for all-zero alt vectors the objective is very flat in b (b* is roughly
-    proportional to the total PON depth), so the last digits of b depend on the optimiser's stopping point. The EB
-    impact of that is in the 3rd decimal at most.
+    Analytic gradient, tight tolerances and a stationarity check with restarts, so the result is the penalised optimum
+    (projected gradient about 0), rounded to 6 significant digits. It is not bit-identical across scipy versions: for
+    all-zero alt vectors the objective is very flat in b (b* is roughly proportional to the total PON depth), so the
+    last digits of b depend on the optimiser's stopping point; the EB impact is in the 3rd decimal at most.
 
-    method="legacy": numerical gradient and default tolerances like the old code (= Genomon EBFilter), rounded to 5
-    decimals. For flat likelihoods (all-zero alt vectors, i.e. most PON cells) that stops early, far from the optimum
-    on realistic PONs, at scipy-version-dependent points: with scipy 1.9.3 it reproduces the legacy fits exactly,
-    with scipy 1.18 only 19 of 102 test fits (relative differences up to 0.6).
-
-    Legacy note: the old code ignored the configured penalty and always used 0.5 (matrix2AB.py:25).
+    The legacy fit (numerical gradient, default tolerances; = Genomon EBFilter) was removed (plan D19): it stops early
+    on flat likelihoods, far from the optimum on realistic PONs and at scipy-version-dependent points. The legacy code
+    also ignored the configured penalty (matrix2AB.py:25).
     """
-    cm = np.asarray(count_matrix)
-    if method == "legacy":
-        params = _fit_legacy(cm, penalty)
-        return round(float(params[0]), 5), round(float(params[1]), 5)
-    if method == "exact":
-        params = _fit_exact(cm, penalty)
-        return round_sig(float(params[0])), round_sig(float(params[1]))
-    raise ValueError(f"unknown fit method {method!r} (use one of {FIT_METHODS})")
+    params = _fit_exact(np.asarray(count_matrix), penalty)
+    return round_sig(float(params[0])), round_sig(float(params[1]))
 
 
 def bb_upper_tail(alt: int, depth: int, a: float, b: float) -> float:

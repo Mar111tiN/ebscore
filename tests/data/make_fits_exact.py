@@ -1,4 +1,4 @@
-"""Golden exact fits: tests/data/fits_exact.tsv (depths, alts, AB = fit_bb(method="exact") with the package).
+"""Golden exact fits: tests/data/fits_exact.tsv (depths, alts, AB = fit_bb() with the package, the exact fit).
 
 Vectors: the 102 legacy fixture vectors (tests/data/legacy/fits.tsv), the false-stop vectors (tests/data/fits_hard.tsv)
 and synthetic large-PON vectors (26-100 normals at depth 150-300, zero or sparse alts, where b is in the thousands),

@@ -23,17 +23,10 @@ def read_text(path) -> str:
 
 @pytest.fixture(scope="session")
 def legacy_ponmatrix(tmp_path_factory):
-    """A writable copy of the legacy PONmatrix (matrix/ + AB/ + PON_list.txt)."""
+    """A writable copy of the legacy PONmatrix (matrix/ + PON_list.txt; also the legacy AB/ cache, which ebscore
+    ignores since plan D32 — the parity tests read it directly as reference values)."""
     dst = tmp_path_factory.mktemp("ponmatrix") / "pon"
     shutil.copytree(LEGACY / "ponmatrix", dst)
-    return dst
-
-
-@pytest.fixture(scope="session")
-def legacy_matrix_only(tmp_path_factory):
-    """The legacy PONmatrix without its AB cache."""
-    dst = tmp_path_factory.mktemp("ponmatrix_noab") / "pon"
-    shutil.copytree(LEGACY / "ponmatrix", dst, ignore=shutil.ignore_patterns("AB"))
     return dst
 
 

@@ -12,12 +12,14 @@ import ebscore.core as core
 from conftest import DATA, LEGACY
 from ebscore.core import (
     EXACT_OPTIONS,
+    FALLBACK_STARTS,
     FIT_BOUNDS,
     FIT_START,
     STATIONARY_TOL,
     _fit_exact,
     _fit_objective,
     _fit_objective_grad,
+    _lbfgsb_until_stationary,
     _scaled_pg,
     bb_loglikelihood,
     bb_upper_tail,
@@ -29,10 +31,9 @@ from ebscore.core import (
     stationarity,
 )
 
-FITS = pd.read_csv(LEGACY / "fits.tsv", sep="\t", dtype=str)
+FITS = pd.read_csv(LEGACY / "fits.tsv", sep="\t", dtype=str)  # stored legacy fits (main code, scipy 1.9.3)
 HARD = pd.read_csv(DATA / "fits_hard.tsv", sep="\t", dtype=str)
 GOLDEN = pd.read_csv(DATA / "fits_exact.tsv", sep="\t", dtype=str)
-OLD_SCIPY = tuple(int(x) for x in scipy.__version__.split(".")[:2]) < (1, 15)
 
 
 def matrix(depths, alts):
@@ -52,42 +53,23 @@ def sparse_low_depth(seed, n):
         yield np.transpose([depth, alt]).astype(int)
 
 
-@pytest.mark.skipif(not OLD_SCIPY, reason="legacy numerical-gradient fits are only reproducible with old scipy")
-def test_legacy_fit_reproduces_old_values():
-    for d, a, ab in FITS.itertuples(index=False):
-        assert "|".join(map(str, fit_bb(matrix(d, a), method="legacy"))) == ab
+def reference_objective(cm, start, penalty=0.5):
+    """Best objective of two independent reference optimisers: the legacy-style L-BFGS-B (numerical gradient,
+    default tolerances; test-only, the package has no legacy fit since plan D19) and a Nelder-Mead polish."""
+    leg = fmin_l_bfgs_b(_fit_objective, FIT_START, args=(cm, penalty), approx_grad=True, bounds=FIT_BOUNDS)[0]
+    nm = minimize(_fit_objective, start, args=(cm, penalty), method="Nelder-Mead", bounds=FIT_BOUNDS,
+                  options=dict(xatol=1e-9, fatol=1e-12, maxiter=20000))
+    return min(_fit_objective(leg, cm, penalty), nm.fun)
 
 
-def test_legacy_fit_settings_reach_the_optimiser(monkeypatch):
-    # scipy-independent check of --fit legacy: numerical gradient, legacy start/bounds, the given penalty
-    calls = []
-
-    def spy(*args, **kw):
-        calls.append((args, kw))
-        return fmin_l_bfgs_b(*args, **kw)
-
-    monkeypatch.setattr(core, "fmin_l_bfgs_b", spy)
-    cm = matrix("30|40|50|60|70|80", "0|0|1|0|0|0")
-    fit_bb(cm, penalty=2.0, method="legacy")
-    (args, kw), = calls
-    assert args[0] is core._fit_objective and list(args[1]) == [20, 20]
-    assert kw["approx_grad"] is True and kw["bounds"] == [(0.1, 10000000), (1, 10000000)]
-    assert np.array_equal(kw["args"][0], cm)
-    assert kw["args"][1] == 2.0
-    assert set(kw) == {"args", "approx_grad", "bounds"}  # default tolerances, as in the old code
+def test_fit_bb_has_no_legacy_method():
+    # plan D19: the exact fit is the only fit
+    with pytest.raises(TypeError):
+        fit_bb(matrix("30|40", "0|1"), method="legacy")
+    assert not hasattr(core, "_fit_legacy") and not hasattr(core, "FIT_METHODS")
 
 
-def test_legacy_fit_objective_close_to_stored_legacy_fits():
-    # the legacy optimiser stops early at scipy-dependent points, but near the stored legacy objective
-    for d, a, ab in FITS.itertuples(index=False):
-        cm = matrix(d, a)
-        old = tuple(float(x) for x in ab.split("|"))
-        new = fit_bb(cm, method="legacy")
-        assert new == tuple(round(x, 5) for x in new)  # legacy rounding: 5 decimals
-        assert abs(_fit_objective(new, cm, 0.5) - _fit_objective(old, cm, 0.5)) < 0.15
-
-
-def test_exact_fit_is_never_worse_than_legacy():
+def test_exact_fit_is_never_worse_than_the_stored_legacy_fits():
     for d, a, ab in FITS.itertuples(index=False):
         cm = matrix(d, a)
         old = tuple(float(x) for x in ab.split("|"))
@@ -121,22 +103,21 @@ def test_one_lbfgsb_run_can_stop_early_on_the_hard_vectors():
 
 
 @pytest.mark.parametrize("source", ["hard", "seeded"])
-def test_exact_fit_is_stationary_and_never_worse_than_legacy(source):
-    vectors = [matrix(d, a) for d, a in HARD.itertuples(index=False)] if source == "hard" else sparse_low_depth(11, 600)
+def test_exact_fit_is_stationary_and_beats_reference_optimisers(source):
+    vectors = [matrix(d, a) for d, a in HARD.itertuples(index=False)] if source == "hard" else sparse_low_depth(11, 300)
     for cm in vectors:
         ex = fit_bb(cm)
         assert stationarity(ex, cm) <= STATIONARY_TOL, cm.tolist()
-        assert _fit_objective(ex, cm, 0.5) <= _fit_objective(fit_bb(cm, method="legacy"), cm, 0.5) + 1e-6
+        assert _fit_objective(ex, cm, 0.5) <= reference_objective(cm, ex) + 1e-6, cm.tolist()
 
 
-def test_exact_fit_falls_back_to_the_better_legacy_point(monkeypatch):
-    # if restarts never reach a stationary point, the better of the exact and the legacy point is returned
+def test_exact_fit_falls_back_to_the_best_start(monkeypatch):
+    # if FIT_START never gets stationary, the best point over FIT_START and all FALLBACK_STARTS is returned
     monkeypatch.setattr(core, "STATIONARY_TOL", -1.0)
     cm = matrix(*HARD.iloc[0])
     x = _fit_exact(cm, 0.5)
-    legacy = core._fit_legacy(cm, 0.5)
-    assert _fit_objective(x, cm, 0.5) <= _fit_objective(legacy, cm, 0.5)
-
+    candidates = [_lbfgsb_until_stationary(cm, 0.5, s)[0] for s in (FIT_START, *FALLBACK_STARTS)]
+    assert _fit_objective(x, cm, 0.5) == min(_fit_objective(c, cm, 0.5) for c in candidates)
 
 def test_exact_fit_rounds_to_6_significant_digits():
     for d, a, _ in GOLDEN.head(20).itertuples(index=False):

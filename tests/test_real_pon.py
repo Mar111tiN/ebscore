@@ -12,7 +12,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from ebscore.core import STATIONARY_TOL, _fit_objective, eb_score, fit_bb, stationarity
+from scipy.optimize import fmin_l_bfgs_b
+
+from ebscore.core import FIT_BOUNDS, FIT_START, STATIONARY_TOL, _fit_objective, eb_score, fit_bb, stationarity
 from ebscore.counts import split_cell
 
 REAL = os.environ.get("EBSCORE_REAL_PONMATRIX")
@@ -47,19 +49,26 @@ def vectors():
     return list(out.values())
 
 
+def _legacy_style_fit(cm):
+    """Reference only (the package has no legacy fit since plan D19): numerical-gradient L-BFGS-B with default
+    tolerances, rounded to 5 decimals, as the main code and Genomon EBFilter did."""
+    x = fmin_l_bfgs_b(_fit_objective, FIT_START, args=(cm, 0.5), approx_grad=True, bounds=FIT_BOUNDS)[0]
+    return round(float(x[0]), 5), round(float(x[1]), 5)
+
+
 def test_exact_fit_is_stationary_and_never_worse_than_legacy(vectors):
     for cm in vectors:
         ex = fit_bb(cm)
         assert stationarity(ex, cm) <= STATIONARY_TOL, cm.tolist()
-        assert _fit_objective(ex, cm, 0.5) <= _fit_objective(fit_bb(cm, method="legacy"), cm, 0.5) + 1e-6
+        assert _fit_objective(ex, cm, 0.5) <= _fit_objective(_legacy_style_fit(cm), cm, 0.5) + 1e-6
 
 
 def test_report_eb_delta_exact_minus_legacy(vectors, capsys):
-    # documents the size of the --fit default question (plan D-Q15); nothing to assert beyond finiteness
+    # documents why EB thresholds set on legacy values do not carry over (plan D19); nothing to assert beyond finiteness
     for alt, depth in [((2, 2), (60, 60)), ((3, 3), (150, 150))]:
         d = []
         for cm in vectors:
-            ex, lg = fit_bb(cm), fit_bb(cm, method="legacy")
+            ex, lg = fit_bb(cm), _legacy_style_fit(cm)
             d.append((eb_score(alt, depth, (ex, ex)), eb_score(alt, depth, (lg, lg))))
         d = np.array(d)
         delta = d[:, 0] - d[:, 1]

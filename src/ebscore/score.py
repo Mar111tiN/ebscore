@@ -1,11 +1,10 @@
-"""EB score of variants: tumor counts + PONmatrix (+ optional AB cache) -> PON+ PON- EB.
+"""EB score of variants: tumor counts + PONmatrix -> PON+ PON- EB.
 
 Replaces the legacy ``ebrun.run_ebscore`` / ``file2matrix.tumor2matrix`` / ``tumor2matrix.mawk`` chain:
 - positions are looked up with a hash filter (``filterpos.mawk``) instead of a sorted merge, so any number of
   chromosomes works in one run, nothing is lost when the PON misses a position, and pure-indel sites are kept
-- AB parameters come from the AB cache when it exists, its manifest matches penalty/fit/matrix and no PON sample is
-  excluded; otherwise they are fitted on the fly (de-duplicated, parallel); the legacy on-the-fly path crashed
-  (tumor_matrix.py:80)
+- the beta-binomial parameters are always fitted on the fly at the called positions (de-duplicated, parallel); the
+  legacy on-the-fly path crashed (tumor_matrix.py:80), and the AB cache was removed (plan D32)
 - PON samples are excluded explicitly by name or index instead of by a file-name prefix convention
 """
 
@@ -19,11 +18,10 @@ from pathlib import Path
 import pandas as pd
 
 from .core import eb_score
-from .counts import ab_string, drop_samples, fit_key, n_samples, parse_ab, pon_string, split_cell, tumor_string
+from .counts import ab_string, drop_samples, fit_key, n_samples, pon_string, split_cell, tumor_string
 from .fitting import fit_many
 from .pileup import MIN_BASEQ, MIN_MAPQ, mpileup_cmd
-from .abcache import cache_mismatch, read_manifest
-from .tools import cat_cmd, cmd2df, first_line, q, run_parallel, tool
+from .tools import cat_cmd, cmd2df, first_line, run_parallel, tool
 from .variants import VCF_COLUMNS, read_variants
 
 log = logging.getLogger("ebscore")
@@ -124,26 +122,6 @@ def _lookup_per_chrom(folder: Path, suffix: str, chroms, positions_file, threads
     return (pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()), found
 
 
-def _usable_ab_chroms(ab_dir: Path, chroms, ponmatrix: Path, penalty, fit_method, n_pon) -> list[str]:
-    """Chromosomes whose AB cache exists and matches penalty, fit method and the current matrix (see abcache)."""
-    usable = []
-    for chrom in chroms:
-        if _find(ab_dir / f"{chrom}.AB.gz") is None:
-            continue
-        manifest = read_manifest(ab_dir, chrom)
-        matrix = _find(ponmatrix / "matrix" / f"{chrom}.pon.gz")
-        why = cache_mismatch(manifest, penalty, fit_method, n_pon, matrix)
-        if why:
-            log.warning(
-                "AB cache %s/%s.AB.gz %s: %s; fitting on the fly", ab_dir, chrom,
-                "has no manifest (legacy cache: penalty 0.5, --fit legacy)" if manifest is None else "does not match",
-                "; ".join(why),
-            )
-            continue
-        usable.append(chrom)
-    return usable
-
-
 def score_variants(
     variants,
     ponmatrix,
@@ -151,7 +129,6 @@ def score_variants(
     tumor_column=None,
     tumor_bam=None,
     fasta=None,
-    use_ab_cache=True,
     exclude_samples=(),
     exclude_index=(),
     penalty=0.5,
@@ -163,16 +140,13 @@ def score_variants(
     min_baseq=MIN_BASEQ,
     keep_matrix=False,
     tmpdir=None,
-    fit_method="exact",
-    ab_dir=None,
     allow_missing_chrom=False,
 ) -> pd.DataFrame:
     """Score a variant table/VCF (path) or a prepared DataFrame. Returns the input columns + PON+ PON- EB.
 
-    ``ab_dir``: AB cache folder (default ``<ponmatrix>/AB``); a cache is used only where its manifest matches
-    ``penalty``/``fit_method`` and the current matrix, and never with excluded samples. ``EB`` is float64 (NaN = no
-    data). Fails if ``<ponmatrix>/matrix`` is missing, or if no variant chromosome has a matrix file (unless
-    ``allow_missing_chrom``).
+    The beta-binomial parameters are fitted on the fly for every scored position (identical PON vectors once).
+    ``EB`` is float64 (NaN = no data). Fails if ``<ponmatrix>/matrix`` is missing, or if no variant chromosome has a
+    matrix file (unless ``allow_missing_chrom``).
     """
     if missing not in MISSING_POLICIES:
         raise ValueError(f"missing must be one of {MISSING_POLICIES}")
@@ -183,9 +157,6 @@ def score_variants(
     ponmatrix = Path(ponmatrix)
     if not (ponmatrix / "matrix").is_dir():
         raise ValueError(f"{ponmatrix} is not a PONmatrix folder (no matrix/ subfolder)")
-    if ab_dir is not None and use_ab_cache and not Path(ab_dir).is_dir():
-        raise ValueError(f"AB cache folder {ab_dir} does not exist")
-    ab_dir = Path(ab_dir) if ab_dir is not None else ponmatrix / "AB"
     vdf = read_variants(variants) if not isinstance(variants, pd.DataFrame) else variants.copy()
     if chroms:
         vdf = vdf[vdf["Chr"].isin(set(chroms))].reset_index(drop=True)
@@ -205,7 +176,6 @@ def score_variants(
     with tempfile.TemporaryDirectory(prefix="ebscore_", dir=tmpdir) as work:
         pos_file = Path(work) / "positions.tsv"
         positions.to_csv(pos_file, sep="\t", header=False, index=False)
-        ab, ab_chroms = pd.DataFrame(), set()
         if positions.empty:
             tum = pon = pd.DataFrame()
         else:
@@ -222,16 +192,11 @@ def score_variants(
             log.warning("PON_list.txt has %d entries but the PONmatrix has %d samples", len(pon_list), n_pon)
         exclude = resolve_exclusions(pon_list, n_pon, exclude_samples, exclude_index) if n_pon else set()
         if exclude:
-            log.info("excluding PON samples (1-based) %s; the AB cache is not used", sorted(i + 1 for i in exclude))
-        if use_ab_cache and not exclude and not positions.empty and ab_dir.is_dir():
-            usable = _usable_ab_chroms(ab_dir, var_chroms, ponmatrix, penalty, fit_method, n_pon)
-            if usable:
-                ab, ab_chroms = _lookup_per_chrom(ab_dir, ".AB.gz", usable, pos_file, threads)
-                log.info("using the AB cache for %s", ", ".join(sorted(ab_chroms)))
+            log.info("excluding PON samples (1-based) %s", sorted(i + 1 for i in exclude))
 
-    tum_rows, pon_rows, ab_rows = _rows_by_pos(tum), _rows_by_pos(pon), _rows_by_pos(ab)
+    tum_rows, pon_rows = _rows_by_pos(tum), _rows_by_pos(pon)
 
-    records, to_fit, n_cache_miss = [], [], 0
+    records, to_fit = [], []
     for chrom, pos, letter in zip(vdf["Chr"], vdf["_pos"], vdf["_letter"]):
         rec = {"PON+": pd.NA, "PON-": pd.NA, "EB": float("nan"), "Tumor": pd.NA, "AB": pd.NA, "_ab": None,
                "_keys": None}
@@ -252,17 +217,10 @@ def score_variants(
         rec["PON+"], rec["PON-"] = pon_string(*plus), pon_string(*minus)
         if sum(plus[1]) + sum(minus[1]) == 0:
             continue  # only excluded samples cover this position
-        a = ab_rows.get(key) if chrom in ab_chroms else None
-        if a is not None:
-            rec["_ab"] = parse_ab(a[letter])
-        else:
-            n_cache_miss += chrom in ab_chroms
-            rec["_keys"] = (fit_key(plus[1], plus[0]), fit_key(minus[1], minus[0]))
-            to_fit.extend(rec["_keys"])
-    if n_cache_miss:
-        log.warning("%d positions are in the PONmatrix but not in its AB cache: fitted on the fly", n_cache_miss)
+        rec["_keys"] = (fit_key(plus[1], plus[0]), fit_key(minus[1], minus[0]))
+        to_fit.extend(rec["_keys"])
 
-    fitted = fit_many(to_fit, penalty, threads, fit_method)
+    fitted = fit_many(to_fit, penalty, threads)
     n_missing = 0
     for rec in records:
         if rec["_keys"] is not None:

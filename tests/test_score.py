@@ -1,9 +1,5 @@
 """EB scoring against the legacy run_ebscore output, the documented deltas and the scoring options."""
 
-import gzip
-import json
-import logging
-import os
 import shutil
 import stat
 import subprocess
@@ -13,17 +9,45 @@ import pandas as pd
 import pytest
 
 import ebscore.fitting as fitting
-import ebscore.score as score_mod
 from conftest import LEGACY, SYN
-from ebscore.abcache import ab_cache
 from ebscore.cli import main
 from ebscore.core import eb_score, fit_bb
-from ebscore.counts import parse_ab
-from ebscore.score import EB_INFO_HEADER, resolve_exclusions, score_variants, write_vcf_annotation
-from ebscore.variants import read_vcf
+from ebscore.score import EB_INFO_HEADER, resolve_exclusions, score_variants
+from ebscore.variants import add_lookup, read_vcf
 
 KEY = ["Chr", "Start", "End", "Ref", "Alt"]
 PAIR = LEGACY / "pair.cpile.tsv.gz"
+LEGACY_AB = LEGACY / "ponmatrix" / "AB"  # the AB cache the main code built; test data only (plan D32)
+
+
+def _parse_ab(cell):
+    plus, minus = cell.split("=")
+    return tuple(tuple(float(x) for x in s.split("|")) for s in (plus, minus))
+
+
+def eb_from_legacy_ab(df, fisher="legacy", missing=0.0):
+    """EB recomputed the legacy way: the port's tumor counts (``Tumor``) + the legacy AB cache values.
+
+    This is what the legacy run_ebscore did with its AB cache; rows without an AB cache cell or tumor reads get
+    ``missing`` (legacy: 0).
+    """
+    rows = {}
+    for f in LEGACY_AB.glob("*.AB.gz"):
+        ab = pd.read_csv(f, sep="\t", dtype=str)
+        rows.update({(c, int(s)): r for c, s, r in zip(ab["Chr"], ab["Start"], ab.to_dict("records"))})
+    look = add_lookup(df[KEY].astype(str))
+    out = []
+    for (_, v), tumor in zip(look.iterrows(), df["Tumor"]):
+        cell = rows.get((v["Chr"], int(v["_pos"]))) if pd.notna(v["_pos"]) else None
+        if cell is None or pd.isna(tumor):
+            out.append(missing)
+            continue
+        (tp, tm), (dp, dm) = [x.split("=") for x in tumor.split("<")]
+        if int(dp) + int(dm) == 0:
+            out.append(missing)
+            continue
+        out.append(eb_score((int(tp), int(tm)), (int(dp), int(dm)), _parse_ab(cell[v["_letter"]]), fisher))
+    return pd.Series(out, index=df.index, dtype="float64")
 
 
 @pytest.fixture(scope="module")
@@ -71,9 +95,10 @@ def drop_column(src, dst, col):
 
 
 # ------------------------------------------------------------------ legacy parity and documented deltas
-def test_parity_with_legacy_ab_cache(legacy_ponmatrix, legacy_eb, scenarios):
-    # the legacy cache (no manifest) counts as penalty 0.5 + --fit legacy, so it is used with fit_method="legacy"
-    new = scored(ponmatrix=legacy_ponmatrix, fisher="legacy", missing="zero", threads=2, fit_method="legacy")
+def test_parity_with_legacy_eb(legacy_ponmatrix, legacy_eb, scenarios):
+    # the port's lookups (tumor counts, PON strings) + the legacy AB values reproduce the legacy EB exactly
+    new = scored(ponmatrix=legacy_ponmatrix, missing="zero", threads=2, keep_matrix=True)
+    new["EB_legacy_ab"] = eb_from_legacy_ab(new)
     m = legacy_eb.merge(new, on=KEY, suffixes=("_leg", ""), how="left")  # new passes `scenario` through
     assert m["EB"].notna().all(), "every legacy row is also scored"
     # legacy bug: the variant right after a position without PON coverage loses its PON line (tumor2matrix.mawk)
@@ -81,7 +106,8 @@ def test_parity_with_legacy_ab_cache(legacy_ponmatrix, legacy_eb, scenarios):
     assert after_gap.sum() == 2
     assert m.loc[after_gap, "PON+"].str.contains("<").all()
     same = m[~after_gap]
-    assert (same["EB"].astype(float) == same["EB_leg"].astype(float)).all()
+    assert len(same) == 33
+    assert (same["EB_legacy_ab"] == same["EB_leg"].astype(float)).all()
     covered = same["PON+_leg"].ne("")
     assert (same.loc[covered, "PON+"] == same.loc[covered, "PON+_leg"]).all()
     assert (same.loc[covered, "PON-"] == same.loc[covered, "PON-_leg"]).all()
@@ -98,12 +124,12 @@ def test_rows_legacy_dropped_are_scored(legacy_ponmatrix, legacy_eb, scenarios):
     assert new.query("scenario == 'multi'")["EB"].notna().all()
 
 
-def test_exact_on_the_fly_fits_vs_legacy_ab_cache(legacy_ponmatrix, legacy_matrix_only):
-    cache = scored(ponmatrix=legacy_ponmatrix, fit_method="legacy")
-    fly = scored(ponmatrix=legacy_matrix_only, threads=2)
-    both = cache["EB"].notna()
-    assert (fly["EB"].notna() == both).all()
-    diff = (cache.loc[both, "EB"] - fly.loc[both, "EB"]).abs()
+def test_exact_fits_vs_legacy_ab_values(legacy_ponmatrix):
+    fly = scored(ponmatrix=legacy_ponmatrix, threads=2, keep_matrix=True)
+    leg = eb_from_legacy_ab(fly, fisher="sf", missing=np.nan)
+    both = fly["EB"].notna() & leg.notna()
+    assert both.sum() >= 40
+    diff = (leg[both] - fly.loc[both, "EB"]).abs()
     assert 0 < diff.max() <= 0.005  # 6 normals at 20-80x: the legacy fit stops close to the optimum here
 
 
@@ -124,21 +150,21 @@ def test_eb_column_is_float(legacy_ponmatrix):
 # ------------------------------------------------------------------ exclusion of PON samples
 def test_exclusion_equals_a_pon_without_that_sample(legacy_ponmatrix, tmp_path):
     reduced = drop_column(legacy_ponmatrix, tmp_path / "pon5", 1)  # N02
-    ref = scored(ponmatrix=reduced, fit_method="legacy", use_ab_cache=False, keep_matrix=True)
-    full = scored(ponmatrix=legacy_ponmatrix, fit_method="legacy", keep_matrix=True)  # uses the full-PON AB cache
-    by_index = scored(ponmatrix=legacy_ponmatrix, fit_method="legacy", exclude_index=[2], keep_matrix=True)
-    by_name = scored(ponmatrix=legacy_ponmatrix, fit_method="legacy", exclude_samples=["N02"], keep_matrix=True)
+    ref = scored(ponmatrix=reduced, keep_matrix=True)
+    full = scored(ponmatrix=legacy_ponmatrix, keep_matrix=True)
+    by_index = scored(ponmatrix=legacy_ponmatrix, exclude_index=[2], keep_matrix=True)
+    by_name = scored(ponmatrix=legacy_ponmatrix, exclude_samples=["N02"], keep_matrix=True)
     pd.testing.assert_frame_equal(by_index, by_name)
     pd.testing.assert_frame_equal(by_index, ref)  # same PON strings, same fits, same EB
     changed = (by_index["EB"].fillna(-1) != full["EB"].fillna(-1)).sum()
-    assert changed >= 20, "excluding a normal changes most EB values (cache skipped, fit on 5 samples)"
+    assert changed >= 20, "excluding a normal changes most EB values (fit on 5 samples)"
 
     out = tmp_path / "cli.tsv"
     cli("score", "--variants", SYN / "variants.tsv", "--ponmatrix", legacy_ponmatrix, "--pileup", PAIR, "-o", out,
-        "--fit", "legacy", "--exclude-sample", "N02")
+        "--exclude-sample", "N02")
     assert (eb_of(read_out(out)).fillna(-1).to_numpy() == ref["EB"].fillna(-1).to_numpy()).all()
     cli("score", "--variants", SYN / "variants.tsv", "--ponmatrix", legacy_ponmatrix, "--pileup", PAIR, "-o", out,
-        "--fit", "legacy", "--exclude-index", 2)
+        "--exclude-index", 2)
     assert (eb_of(read_out(out)).fillna(-1).to_numpy() == ref["EB"].fillna(-1).to_numpy()).all()
 
 
@@ -198,98 +224,7 @@ def test_penalty_reaches_the_fit(large_pon, tmp_path):
     assert (eb_of(read_out(out)).to_numpy() == pen["EB"].to_numpy()).all()
 
 
-# ------------------------------------------------------------------ AB cache
-@pytest.fixture(scope="module")
-def built_cache_ro(legacy_matrix_only, tmp_path_factory):
-    """The legacy matrix + an AB cache built by `ebscore ab-cache --chunk-rows 100` (exact fit); do not modify."""
-    pon = tmp_path_factory.mktemp("built") / "pon"
-    shutil.copytree(legacy_matrix_only, pon)
-    cli("ab-cache", "--ponmatrix", pon, "-o", pon, "--chrom", "chr7", "--chrom", "chr12", "--chunk-rows", 100)
-    return pon
-
-
-@pytest.fixture()
-def built_cache(built_cache_ro, tmp_path):
-    """A modifiable copy of built_cache_ro."""
-    return shutil.copytree(built_cache_ro, tmp_path / "pon")
-
-
-def test_ab_cache_chunks_and_manifest(built_cache_ro):
-    pon = built_cache_ro
-    for chrom in ("chr7", "chr12"):
-        with gzip.open(pon / "AB" / f"{chrom}.AB.gz", "rt") as fh:
-            text = fh.read().splitlines()
-        assert text[0].split("\t") == ["Chr", "Start", "Ref", *"AGCTID"]
-        assert sum(line.startswith("Chr\t") for line in text) == 1
-        ab = pd.read_csv(pon / "AB" / f"{chrom}.AB.gz", sep="\t", dtype=str)
-        m = pd.read_csv(pon / "matrix" / f"{chrom}.pon.gz", sep="\t", dtype=str)
-        assert len(m) > 100  # several chunks
-        assert ab["Start"].tolist() == m["Start"].tolist() and ab["Chr"].tolist() == m["Chr"].tolist()
-        man = json.loads((pon / "AB" / f"{chrom}.AB.json").read_text())
-        assert man["penalty"] == 0.5 and man["fit"] == "exact" and man["n_samples"] == 6 and man["rows"] == len(m)
-        assert man["matrix_size"] == os.path.getsize(pon / "matrix" / f"{chrom}.pon.gz")
-        row = m.iloc[3]  # cell = fit_bb of the matrix vectors
-        dep = [[int(x) for x in s.split("|")] for s in row["Depth"].split("=")]
-        alt = [[int(x) for x in s.split("|")] for s in row["C"].split("=")]
-        exp = [fit_bb(np.transpose([dep[s], alt[s]])) for s in (0, 1)]
-        assert parse_ab(ab.iloc[3]["C"]) == tuple(exp)
-
-
-def test_score_uses_a_matching_cache_only(built_cache, tmp_path, monkeypatch):
-    pon = built_cache
-    fly = scored(ponmatrix=pon, use_ab_cache=False, keep_matrix=True)
-    cached = scored(ponmatrix=pon, keep_matrix=True)
-    pd.testing.assert_frame_equal(cached, fly)  # same exact fits
-
-    # tamper one cell: the default run must read it, --no-ab-cache must not
-    f = pon / "AB" / "chr7.AB.gz"
-    ab = pd.read_csv(f, sep="\t", dtype=str)
-    v = fly[fly["Chr"].eq("chr7") & fly["Ref"].isin(list("ACGT")) & fly["Alt"].isin(list("ACGT")) & fly["EB"].notna()]
-    target = v.iloc[0]
-    ab.loc[ab["Start"] == target["Start"], target["Alt"]] = "0.123|4.56=0.123|4.56"
-    ab.to_csv(f, sep="\t", index=False, compression="gzip")
-    used = scored(ponmatrix=pon, keep_matrix=True)
-    hit = (used["Start"] == target["Start"]) & (used["Alt"] == target["Alt"])
-    assert used.loc[hit, "AB"].tolist() == ["0.123|4.56=0.123|4.56"]
-    out = tmp_path / "noab.tsv"
-    cli("score", "--variants", SYN / "variants.tsv", "--ponmatrix", pon, "--pileup", PAIR, "-o", out,
-        "--no-ab-cache", "--keep-matrix")
-    assert read_out(out).loc[hit.to_numpy(), "AB"].tolist() == fly.loc[hit, "AB"].tolist()
-
-    # a mismatching penalty, fit method or sample count makes score fit on the fly (cache ignored)
-    for kw in (dict(penalty=2.0), dict(fit_method="legacy")):
-        other = scored(ponmatrix=pon, keep_matrix=True, **kw)
-        assert other.loc[hit, "AB"].tolist() != ["0.123|4.56=0.123|4.56"]
-    man = json.loads((pon / "AB" / "chr7.AB.json").read_text())
-    for change in ({"n_samples": 5}, {"matrix_size": man["matrix_size"] + 1}):  # another PON / a rebuilt matrix
-        (pon / "AB" / "chr7.AB.json").write_text(json.dumps(man | change))
-        assert scored(ponmatrix=pon, keep_matrix=True).loc[hit, "AB"].tolist() != ["0.123|4.56=0.123|4.56"]
-
-    # the cache is really read: no fits at all when every position is in a matching cache
-    (pon / "AB" / "chr7.AB.json").write_text(json.dumps(man))
-    monkeypatch.setattr(score_mod, "fit_many", lambda keys, *a, **k: {} if not keys else pytest.fail("fitted"))
-    scored(ponmatrix=pon)
-
-
-def test_ab_cache_penalty_and_explicit_cache_dir(legacy_matrix_only, tmp_path, caplog):
-    out = tmp_path / "cache"
-    cli("ab-cache", "--ponmatrix", legacy_matrix_only, "-o", out, "--chrom", "chr7", "--penalty", 2.0)
-    assert not (legacy_matrix_only / "AB").exists(), "nothing written into the input PONmatrix"
-    assert json.loads((out / "AB" / "chr7.AB.json").read_text())["penalty"] == 2.0
-    m = pd.read_csv(legacy_matrix_only / "matrix" / "chr7.pon.gz", sep="\t", dtype=str).iloc[5]
-    ab = pd.read_csv(out / "AB" / "chr7.AB.gz", sep="\t", dtype=str).iloc[5]
-    dep = [[int(x) for x in s.split("|")] for s in m["Depth"].split("=")]
-    alt = [[int(x) for x in s.split("|")] for s in m["T"].split("=")]
-    assert parse_ab(ab["T"]) == tuple(fit_bb(np.transpose([dep[s], alt[s]]), penalty=2.0) for s in (0, 1))
-    with caplog.at_level(logging.INFO, logger="ebscore"):
-        with_cache = scored(ponmatrix=legacy_matrix_only, chroms=["chr7"], penalty=2.0, ab_dir=out / "AB")
-    assert "using the AB cache for chr7" in caplog.text
-    fly = scored(ponmatrix=legacy_matrix_only, chroms=["chr7"], penalty=2.0)
-    pd.testing.assert_frame_equal(with_cache, fly)
-    with pytest.raises(ValueError, match="does not exist"):
-        scored(ponmatrix=legacy_matrix_only, ab_dir=tmp_path / "nope")
-
-
+# ------------------------------------------------------------------ read-only PONmatrix
 def test_read_only_ponmatrix(legacy_ponmatrix, tmp_path):
     pon = tmp_path / "ro"
     shutil.copytree(legacy_ponmatrix, pon)
@@ -297,9 +232,9 @@ def test_read_only_ponmatrix(legacy_ponmatrix, tmp_path):
     try:
         for p in paths:
             p.chmod(p.stat().st_mode & ~(stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH))
-        a = scored(ponmatrix=pon, fit_method="legacy", tmpdir=tmp_path)  # with the AB cache
-        b = scored(ponmatrix=pon, use_ab_cache=False, tmpdir=tmp_path)  # on the fly
-        assert a["EB"].notna().sum() == b["EB"].notna().sum() > 40
+        a = scored(ponmatrix=pon, tmpdir=tmp_path)
+        assert a["EB"].notna().sum() > 40
+        pd.testing.assert_frame_equal(a, scored(ponmatrix=legacy_ponmatrix))
         cli("score", "--variants", SYN / "variants.tsv", "--ponmatrix", pon, "--pileup", PAIR,
             "-o", tmp_path / "ro.tsv", "--tmpdir", tmp_path)
     finally:
@@ -318,15 +253,29 @@ def test_cli_defaults(legacy_ponmatrix, tmp_path):
     t = read_out(tab)
     for kind in ("pon_gap", "tumor_gap", "mnv"):
         assert (t.loc[t["scenario"] == kind, "EB"] == "NA").all()  # default --missing na
-    api = scored(ponmatrix=legacy_ponmatrix)  # defaults: exact fit (the legacy cache is not used), sf, na
+    api = scored(ponmatrix=legacy_ponmatrix)  # defaults: on-the-fly exact fit, sf, na (the AB/ folder is ignored)
     assert (eb_of(t).fillna(-1).to_numpy() == api["EB"].fillna(-1).to_numpy()).all()
-    legacy_fit = scored(ponmatrix=legacy_ponmatrix, fit_method="legacy")
-    assert (legacy_fit["EB"].fillna(-1) != api["EB"].fillna(-1)).any()
     assert (read_out(vcf)["EB"] == "NA").sum() == (t["EB"] == "NA").sum() == 6  # pon_gap, tumor_gap, MNV x 2
     zero = tmp_path / "zero.tsv"
     cli(*args, "--variants", SYN / "variants.tsv", "-o", zero, "--missing", "zero")
     z = read_out(zero)
     assert (z.loc[z["scenario"].isin(["pon_gap", "tumor_gap", "mnv"]), "EB"] == "0.0").all()
+
+
+@pytest.mark.parametrize("removed", [["--fit", "legacy"], ["--fit", "exact"], ["--no-ab-cache"], ["--ab-cache", "x"]])
+def test_removed_score_options_are_rejected(legacy_ponmatrix, tmp_path, removed):
+    # plan D19 (exact fit only) and D32 (no AB cache): the options are gone, argparse rejects them
+    args = ["score", "--ponmatrix", str(legacy_ponmatrix), "--pileup", str(PAIR), "--variants",
+            str(SYN / "variants.tsv"), "-o", str(tmp_path / "o.tsv"), *removed]
+    with pytest.raises(SystemExit) as e:
+        main(args)
+    assert e.value.code == 2
+
+
+def test_ab_cache_command_is_gone(tmp_path):
+    with pytest.raises(SystemExit) as e:
+        main(["ab-cache", "--ponmatrix", str(tmp_path), "--chrom", "chr1", "-o", str(tmp_path)])
+    assert e.value.code == 2
 
 
 def test_tumor_column(legacy_ponmatrix, tmp_path):
@@ -474,12 +423,7 @@ def test_chrom_restriction(legacy_ponmatrix):
 def test_fit_many_dedups_and_keeps_order(monkeypatch):
     keys = [(10, 0, 20, 0), (10, 0, 20, 1), (10, 0, 20, 0)]
     calls = []
-    monkeypatch.setattr(fitting, "fit_bb", lambda cm, pen, m: calls.append(cm.tolist()) or (float(cm[1, 1]), pen))
+    monkeypatch.setattr(fitting, "fit_bb", lambda cm, pen: calls.append(cm.tolist()) or (float(cm[1, 1]), pen))
     res = fitting.fit_many(keys, 0.7)
     assert calls == [[[10, 0], [20, 0]], [[10, 0], [20, 1]]]
     assert res == {(10, 0, 20, 0): (0.0, 0.7), (10, 0, 20, 1): (1.0, 0.7)}
-
-
-def test_ab_cache_api_needs_an_output_dir(legacy_matrix_only, tmp_path):
-    out = ab_cache(legacy_matrix_only, "chr12", tmp_path / "AB", chunk_rows=60)
-    assert out == tmp_path / "AB" / "chr12.AB.gz" and (tmp_path / "AB" / "chr12.AB.json").is_file()

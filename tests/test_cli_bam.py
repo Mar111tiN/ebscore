@@ -1,4 +1,4 @@
-"""End to end through samtools with tiny simulated BAMs: pileup, pon-matrix, ab-cache, score."""
+"""End to end through samtools with tiny simulated BAMs: pileup, pon-matrix, score."""
 
 import gzip
 
@@ -41,11 +41,6 @@ def test_end_to_end(bam_set, tmp_path):
     # with 4 PON normals at ~20x, EB of a clean 30 % SNV is ~1.4-1.5; the PON-supported artifact must score lower
     assert (real["EB"] > 1).all(), real
     assert (artifact["EB"] < real["EB"].min()).all(), artifact
-
-    run("ab-cache", "--ponmatrix", pon, "-o", pon, "--chrom", "chrA", "--chrom", "chrB", "-t", 2)
-    eb_cache = tmp_path / "eb_cache.tsv"
-    run("score", "--variants", b["variants"], "--ponmatrix", pon, "--pileup", pair1, "-o", eb_cache)
-    pd.testing.assert_frame_equal(pd.read_csv(eb_cache, sep="\t"), a)
 
 
 def test_cli_errors(tmp_path, capsys):
