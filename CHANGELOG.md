@@ -75,4 +75,24 @@ Port of `main` (HEAD `ef67010`) for kumo-variant-calling-nf. Values were checked
 - `cleanpileup`: `-s N` was compared as a string (ignored with ≥ 10 samples); `N` in indel bases now counts as forward
   strand; the chromosome name is no longer used as a printf format.
 - `pile2count`: the dot is counted with a regex literal, so gawk now gives the same counts as mawk.
+- `cleanpileup` and `pile2count` split their input on tabs only (`FS = "\t"`). The legacy tools used mawk's default
+  field splitting (runs of blanks), which collapsed empty fields and shifted the columns after them. Real `samtools
+  mpileup` output has no empty fields (`0 * *` for no coverage) and no blanks in reference names, so it is unaffected.
 - AB cache coordinates: `Chr Start Ref` are always written (the `61cba31` cache lacked them).
+
+### Pileup and PONmatrix (port behaviour, fixed after review)
+- Chromosomes are the BED's (or `--chrom`'s, de-duplicated) that every BAM header has, in BAM header order. A BED
+  contig missing from a BAM header is skipped with a warning (before, `-t 1` skipped it silently and `-t N` failed);
+  if no chromosome is left, the run fails (exit 2) instead of writing an empty file. So `pileup -t 1` and `-t N` give
+  the same rows in the same order also with a lexically sorted vendor BED (myCNV's `filterBed.mawk` relies on a
+  defined order), and one PON BAM without a BED contig no longer aborts `pon-matrix`.
+- Every pileup and PONmatrix file has its header line, also when no position is covered (before: a 0-byte gzip that
+  `score` rejected; an empty chromosome list made the threaded pileup read stdin).
+- BED files may be gzipped and blank-delimited (as `samtools -l` accepts).
+- The threaded pileup writes gzipped per-chromosome parts (concatenated as a multi-member gzip) into a scratch folder
+  next to the output (`--tmpdir` overrides), not ~15 GB of plain text per WES pair into the system temp. On the first
+  failing chromosome the pending ones are cancelled.
+- Repeated `--chrom` values count once (before: duplicated pileup rows, and a `pon-matrix` race on the same file).
+- `pon-matrix`: relative BAM-list entries resolve against the folder the list is seen in, without following a symlink
+  (Nextflow stages the list as a symlink next to the BAMs). `PON_list.txt` is written via a temp file + rename, so a
+  staged input symlink of that name is replaced instead of rewriting its target.

@@ -47,10 +47,11 @@ def _write_sam(path, contigs, reads, sample):
         for name, seq in contigs.items():
             fh.write(f"@SQ\tSN:{name}\tLN:{len(seq)}\n")
         fh.write(f"@RG\tID:{sample}\tSM:{sample}\n")
-        for i, (contig, start, seq, rev) in enumerate(reads):
+        for i, (contig, start, seq, rev, *mapq) in enumerate(reads):
             flag = 16 if rev else 0
             qual = "I" * len(seq)
-            fh.write(f"r{i}\t{flag}\t{contig}\t{start + 1}\t60\t{len(seq)}M\t*\t0\t0\t{seq}\t{qual}\tRG:Z:{sample}\n")
+            mq = mapq[0] if mapq else 60
+            fh.write(f"r{i}\t{flag}\t{contig}\t{start + 1}\t{mq}\t{len(seq)}M\t*\t0\t0\t{seq}\t{qual}\tRG:Z:{sample}\n")
 
 
 def _simulate(rng, contigs, depth, snvs):
@@ -92,20 +93,33 @@ def bam_set(tmp_path_factory):
     pon_snvs = {k: (alt_of(*k), 0.05) for k in artifact}
     tum_snvs = {k: (alt_of(*k), 0.3) for k in real} | {k: (alt_of(*k), 0.05) for k in artifact}
 
-    def make(name, depth, snvs):
+    def make(name, depth, snvs, extra=()):
         sam = d / f"{name}.sam"
-        _write_sam(sam, contigs, _simulate(rng, contigs, depth, snvs), name)
+        _write_sam(sam, contigs, _simulate(rng, contigs, depth, snvs) + list(extra), name)
         sh(f"samtools sort -o {d / name}.bam {sam} && samtools index {d / name}.bam")
         sam.unlink()
         return d / f"{name}.bam"
 
+    # 12 tumor reads with MAPQ 10 carrying an alt base: dropped by the default --min-mapq 20
+    low_mapq = ("chrB", 1300)
+    lm_reads = []
+    for s in range(low_mapq[1] - 40, low_mapq[1] - 28):
+        read = list(contigs["chrB"][s : s + READ_LEN])
+        read[low_mapq[1] - s] = alt_of(*low_mapq)
+        lm_reads.append(("chrB", s, "".join(read), s % 2 == 0, 10))
     pon = [make(f"PON{i}", 30, pon_snvs) for i in range(1, 5)]
     normal = make("normal", 30, {})
-    tumor = make("tumor", 60, tum_snvs)
+    tumor = make("tumor", 60, tum_snvs, lm_reads)
     (d / "pon_list.txt").write_text("".join(f"{p.name}\n" for p in pon))  # relative to the list folder
+    # a PON normal with a private 50 % SNV, and an unsorted list that puts it in matrix column 2
+    private = ("chrA", 700)
+    ponx = make("PONX", 30, {private: (alt_of(*private), 0.5)})
+    (d / "pon_list_mixed.txt").write_text("PON3.bam\nPONX.bam\nPON1.bam\n")
     with open(d / "variants.tsv", "w") as fh:
         fh.write("Chr\tStart\tEnd\tRef\tAlt\n")
         for c, p in real + artifact:
             fh.write(f"{c}\t{p + 1}\t{p + 1}\t{contigs[c][p]}\t{alt_of(c, p)}\n")
     return {"dir": d, "fasta": d / "ref.fa", "bed": d / "target.bed", "pon_list": d / "pon_list.txt",
-            "normal": normal, "tumor": tumor, "variants": d / "variants.tsv", "real": real, "artifact": artifact}
+            "normal": normal, "tumor": tumor, "variants": d / "variants.tsv", "real": real, "artifact": artifact,
+            "low_mapq": low_mapq, "ponx": ponx, "private": private, "pon_list_mixed": d / "pon_list_mixed.txt",
+            "alt_of": alt_of, "contigs": contigs}

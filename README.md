@@ -62,6 +62,12 @@ ebscore vcf2table --vcf calls.vcf.gz -o calls.tsv
 skipped, overlap detection on, `--ff UNMAP,SECONDARY,QCFAIL,DUP`, max depth 8000). Build the PONmatrix and the
 sample pileups with the same samtools version, flags and BED flavour.
 
+Chromosomes are those of the BED (plain or gzipped, tab- or blank-delimited), or of `--chrom`, that every BAM header
+has; missing ones are skipped with a warning, and the run fails if none is left. Rows come in **BAM header order**
+with any `-t` (myCNV's `filterBed.mawk` walks the pileup in this order). Every output has its header line, also
+when nothing is covered. The threaded pileup is a multi-member gzip (read it with `gzip -dc`/`zcat`, Python or
+pandas); its scratch parts go next to the output unless `--tmpdir` is set.
+
 ### PONmatrix folder
 
 ```

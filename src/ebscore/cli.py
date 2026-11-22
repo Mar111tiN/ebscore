@@ -48,7 +48,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--bed", required=True, help="target BED (the kit's covered flavour, plan L9)")
     p.add_argument("-o", "--output", required=True, help="output .pileup.gz")
     p.add_argument("--chrom", action="append", help="only these chromosomes (repeatable; default: whole BED)")
-    p.add_argument("--tmpdir", help="scratch folder (default: system temp)")
+    p.add_argument("--tmpdir", help="scratch folder for the per-chromosome parts (default: the output's folder)")
     _pileup_opts(p)
     _common(p)
 
@@ -102,6 +102,8 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
+    if getattr(args, "chrom", None):
+        args.chrom = list(dict.fromkeys(args.chrom))  # repeated --chrom values count once
     from .tools import setup_logging
 
     setup_logging(args.verbose, args.quiet)
