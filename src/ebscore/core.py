@@ -1,88 +1,137 @@
-import pandas as pd
-import numpy as np
+"""Beta-binomial core of the EB score (the Genomon EBFilter / EBCall math, github.com/friend1ws/EBCall).
+
+Per strand, a beta-binomial (a, b) is fitted to the PON (depth, alt) pairs. The fit maximises the log-likelihood
+minus a penalty ``penalty * ln(a + b)`` with L-BFGS-B (start [20, 20], a in [0.1, 1e7], b in [1, 1e7]).
+The tumor p-value per strand is the upper tail P(X >= alt | depth, a, b). Both strands are combined with Fisher's
+method (chi2, 4 degrees of freedom), and EB = -log10(p), capped at 60.
+"""
+
+from __future__ import annotations
+
 import math
-from scipy.optimize import fmin_l_bfgs_b as minimize_func
+
+import numpy as np
+from scipy.optimize import fmin_l_bfgs_b
+from scipy.special import digamma, gammaln
 from scipy.stats import chi2
-from scipy.special import gammaln
 
-######### matrix2AB ######################
+# gammaln arguments [n+1, k+1, n-k+1, n+a+b, k+a, n-k+b, a+b, a, b] and their signs: the log of
+# C(n, k) * B(k + a, n - k + b) / B(a, b) for depth n and alt count k.
+KS_MATRIX = np.array([[1, 0, 1, 1, 0, 1, 0, 0, 0], [0, 1, -1, 0, 1, -1, 0, 0, 0]])
+GAMMA_REDUCE = np.array([1, -1, -1, -1, 1, 1, 1, -1, -1])
+
+FIT_START = [20, 20]
+FIT_BOUNDS = [(0.1, 10000000), (1, 10000000)]
+EB_MAX = 60.0
 
 
-# the matrices for beta-binomial calculation
-KS_matrix = np.array([[1, 0, 1, 1, 0, 1, 0, 0, 0], [0, 1, -1, 0, 1, -1, 0, 0, 0]])
-gamma_reduce = np.array([1, -1, -1, -1, 1, 1, 1, -1, -1])
+def bb_loglikelihood(params, count_matrix: np.ndarray) -> float:
+    """Summed beta-binomial log-likelihood of an N x 2 array of [depth, alt] pairs (or one pair, shape (2,)).
 
-
-def bb_loglikelihood(params, count_matrix):
-    [a, b] = params
+    Kept exactly as in the legacy code so that fitted parameters stay comparable.
+    """
+    a, b = params
     ab_matrix = np.array([1, 1, 1, a + b, a, b, a + b, a, b])
-
-    # perform matrix multiplication to get inputs to log-gamma
-    input_matrix = np.matmul(count_matrix, KS_matrix) + ab_matrix
-
-    # get corresponding log-gamma values and reduce over pon-values
-    # if count_matrix is 2d (from fitting), gammas have to be summed up
-    # if count_matrix is 1d (shape == (2,))  only use the one gamma
-
+    input_matrix = np.matmul(count_matrix, KS_MATRIX) + ab_matrix
     gamma_matrix = (
-        gammaln(input_matrix)
-        if (count_matrix.shape == (2,))
-        else np.sum(gammaln(input_matrix), axis=0)
+        gammaln(input_matrix) if count_matrix.shape == (2,) else np.sum(gammaln(input_matrix), axis=0)
     )
-
-    # add or subtract using gamma_reduce matrix and sum to loglikelihood (scalar)
-    log_likelihood = np.sum(gamma_matrix * gamma_reduce)
-    return log_likelihood
+    return float(np.sum(gamma_matrix * GAMMA_REDUCE))
 
 
-def bb_loglikelihood_fitting(params, count_matrix, penalty):
+def _fit_objective(params, count_matrix, penalty):
+    return penalty * math.log(sum(params)) - bb_loglikelihood(params, count_matrix)
+
+
+def _fit_objective_grad(params, count_matrix, penalty):
+    """Objective and its analytic gradient (digamma terms), for a converged, version-stable fit."""
+    a, b = params
+    n = count_matrix[:, 0].astype(float)
+    k = count_matrix[:, 1].astype(float)
+    value = penalty * math.log(a + b) - bb_loglikelihood(params, count_matrix)
+    common = np.sum(digamma(a + b) - digamma(n + a + b))
+    d_a = np.sum(digamma(k + a) - digamma(a)) + common
+    d_b = np.sum(digamma(n - k + b) - digamma(b)) + common
+    pen = penalty / (a + b)
+    return value, np.array([pen - d_a, pen - d_b])
+
+
+FIT_METHODS = ("exact", "legacy")
+
+
+def fit_bb(count_matrix: np.ndarray, penalty: float = 0.5, method: str = "exact") -> tuple[float, float]:
+    """Penalised maximum-likelihood (a, b) for an N x 2 array of PON [depth, alt] pairs, rounded to 5 decimals.
+
+    method="exact" (default): analytic gradient and tight tolerances, so the optimum does not depend on the scipy
+    version. method="legacy": numerical gradient and default tolerances like the old code. For flat likelihoods
+    (all-zero alt vectors) that stops early at implementation-dependent points: with scipy 1.9.3 it reproduces the
+    legacy fits exactly, with scipy 1.18 only 19 of 102 test fits (relative differences up to 0.6).
+
+    Legacy note: the old code ignored the configured penalty and always used 0.5 (matrix2AB.py:25).
     """
-    Fitting params [alpha, beta] to maximize loglikelihood
-    """
-
-    # Here, we apply the penalty term of alpha and beta (default 0.5 is slightly arbitray...)
-    result = penalty * math.log(sum(params)) - bb_loglikelihood(
-        params, count_matrix
-    )  # matrix is dim2
-    return result
-
-
-def fit_bb(count_matrix, pen=0.5):
-    """
-    Obtaining maximum likelihood estimator of beta-binomial distribution
-    count_df is the array of depth-mismatch (trials, success) pairs over the PoN list for either strand
-    during minimization of fitting function (max for loglikelihood) penalty term is applied to constrain alpha and beta
-        Ref for L-BFGS-B algorithm:
-        A Limited Memory Algorithm for Bound Constrained Optimization
-        R. H. Byrd, P. Lu and J. Nocedal. , (1995),
-        SIAM Journal on Scientific and Statistical Computing, 16, 5, pp. 1190-1208.
-    """
-
-    # get the matrix from the PON_string
-    #  "6|0|1|0=6|0|17|0" --> array([[6,6],[0,0], [17,1],[0,0]])
-
-    # minimize loglikelihood using L-BFGS-B algorithm
-    ab_params = minimize_func(
-        bb_loglikelihood_fitting,
-        [20, 20],
-        args=(count_matrix, pen),
-        approx_grad=True,
-        bounds=[(0.1, 10000000), (1, 10000000)],
-    )[0]
-    return "|".join([str(round(param, 5)) for param in ab_params])
-
-
-def bb_pvalue(obs_array, AB_params):
-    """
-    get the sum of exponentials of loglikelihoods (densities) per observation
-    params is [A,B] pair
-    """
-    return np.exp([bb_loglikelihood(AB_params, obs) for obs in obs_array]).sum()
-
-
-def fisher_combination(p_values):
-
-    if 0 in p_values:
-        return 0
+    cm = np.asarray(count_matrix)
+    if method == "legacy":
+        params = fmin_l_bfgs_b(_fit_objective, FIT_START, args=(cm, penalty), approx_grad=True, bounds=FIT_BOUNDS)[0]
+    elif method == "exact":
+        params = fmin_l_bfgs_b(
+            _fit_objective_grad, FIT_START, args=(cm, penalty), bounds=FIT_BOUNDS, factr=10.0, pgtol=1e-10,
+            maxiter=100000, maxfun=100000,
+        )[0]
     else:
-        return 1 - chi2.cdf(sum([-2 * math.log(p) for p in p_values]), 4)
+        raise ValueError(f"unknown fit method {method!r} (use one of {FIT_METHODS})")
+    return round(float(params[0]), 5), round(float(params[1]), 5)
+
+
+def bb_upper_tail(alt: int, depth: int, a: float, b: float) -> float:
+    """P(X >= alt) for X ~ BetaBinomial(depth, a, b), summed over s = alt..depth (vectorised legacy bb_pvalue)."""
+    n = float(depth)
+    s = np.arange(alt, depth + 1, dtype=float)
+    loglik = (
+        gammaln(n + 1)
+        - gammaln(s + 1)
+        - gammaln(n - s + 1)
+        - gammaln(n + a + b)
+        + gammaln(s + a)
+        + gammaln(n - s + b)
+        + gammaln(a + b)
+        - gammaln(a)
+        - gammaln(b)
+    )
+    return float(np.exp(loglik).sum())
+
+
+def fisher_combination(p_values, method: str = "sf") -> float:
+    """Fisher's combined p-value.
+
+    method="sf" uses the chi2 survival function. method="legacy" uses ``1 - chi2.cdf`` like the old code, which
+    cannot go below about 2.2e-16, so legacy EB values jump from about 15.95 straight to 60.
+    """
+    if 0 in p_values:
+        return 0.0
+    stat = sum(-2 * math.log(p) for p in p_values)
+    if method == "sf":
+        return float(chi2.sf(stat, 2 * len(p_values)))
+    if method == "legacy":
+        return float(1 - chi2.cdf(stat, 4))
+    raise ValueError(f"unknown Fisher method {method!r} (use 'sf' or 'legacy')")
+
+
+def p_to_eb(p: float) -> float:
+    """EB = -log10(p), rounded to 3 decimals; 60 for p < 1e-60 and 0 for p > 1 - 1e-10 (legacy caps)."""
+    if p < 1e-60:
+        return EB_MAX
+    if p > 1.0 - 1e-10:
+        return 0.0
+    return -round(math.log10(p), 3)
+
+
+def eb_score(tumor_alt, tumor_depth, ab_params, fisher: str = "sf") -> float:
+    """EB for one variant.
+
+    tumor_alt, tumor_depth: (plus, minus) counts; ab_params: ((a+, b+), (a-, b-)).
+    """
+    p_values = [
+        bb_upper_tail(int(k), int(n), float(a), float(b))
+        for k, n, (a, b) in zip(tumor_alt, tumor_depth, ab_params)
+    ]
+    return p_to_eb(fisher_combination(p_values, fisher))
