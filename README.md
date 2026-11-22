@@ -51,7 +51,7 @@ ebscore vcf2table --vcf calls.vcf.gz -o calls.tsv
 | Option | Default | Legacy behaviour |
 |---|---|---|
 | `--fisher sf\|legacy` | `sf`: chi2 survival function | `legacy`: `1 - chi2.cdf`; no EB between ~16 and 60 |
-| `--fit exact\|legacy` | `exact`: analytic gradient, tight tolerances, same optimum on any scipy | `legacy`: numerical gradient, early stop; old values only on scipy < 1.15 |
+| `--fit exact\|legacy` | `exact`: analytic gradient, restarted until stationary (the penalised optimum); AB to 6 significant digits; across scipy versions EB agrees to ~0.001, not bit for bit | `legacy`: numerical gradient, stops early (as Genomon EBFilter); old values only on scipy < 1.15. On realistic PONs EB differs from `exact` by several units (see `CHANGELOG.md`), so thresholds set on legacy EB do not carry over |
 | `--missing na\|zero` | `na`: no tumor or PON data → EB `NA` | `zero`: EB 0 (looks like an artifact) |
 | `--penalty` | 0.5 | was hard-coded 0.5 (config value ignored) |
 | `--min-mapq/--min-baseq` | 20 / 25 | same |

@@ -36,14 +36,31 @@ Port of `main` (HEAD `ef67010`) for kumo-variant-calling-nf. Values were checked
   merge. Now every input variant is in the output (20 of 55 test variants were missing before).
 - **On-the-fly AB fitting crashed** (`tumor_matrix.py:80` unpacked 3 values from `zero2AB`, which returns 2). It is now
   the default path, and it is the only one for PONs without an AB cache (e.g. `somvar_HAEv7_NovaSeq_v1`).
-- **Fit not reproducible across scipy versions.** The numerical-gradient L-BFGS-B stopped early on flat likelihoods
-  (all-zero alt vectors). With scipy 1.18 only 19 of 102 test fits matched scipy 1.9.3 (relative differences up to
-  0.6). The default `--fit exact` uses the analytic (digamma) gradient and tight tolerances: never a worse objective
-  than legacy (up to 0.108 better), equal across scipy versions to the 5th decimal. EB changes by ≤ 0.004 on the test
-  set. `--fit legacy` keeps the old optimiser settings.
+- **Fit stopped far from the optimum.** The legacy L-BFGS-B with a numerical gradient (also what Genomon EBFilter
+  does) stops early on flat likelihoods, i.e. all-zero alt vectors, which are most PON cells. Where it stops depends
+  on the scipy version: with scipy 1.18 only 19 of 102 test fits match scipy 1.9.3 (relative differences up to 0.6).
+  For an all-zero vector the penalised optimum is a = 0.1 with b growing with the total PON depth, while the legacy
+  fit stops at b of a few hundred. The default `--fit exact` uses the analytic (digamma) gradient, tight tolerances
+  and a stationarity check. A single L-BFGS-B run can report convergence at a non-stationary point (3 of 4,000
+  low-depth sparse-alt vectors with scipy 1.18.1 and 6 others with 1.9.3, objective up to 1.9 worse than legacy), so
+  the fit restarts from its own result until the scaled projected gradient is ≤ 1e-3 (at most 5 restarts, then the
+  better of that point and the legacy fit). Exact AB values are rounded to 6 significant digits (legacy: 5 decimals).
+  `--fit legacy` keeps the old optimiser settings. (EBCall's R code is a third variant: it uses fixed (0.1, 1) for
+  all-zero vectors.)
+  - **EB impact on realistic PONs is several units, not small.** On the 6-normal test set (depth 20–80) EB changes by
+    ≤ 0.004, because the legacy fit happens to stop close to the optimum there. On the 28-normal HAEv7 PON
+    (`somvar_HAEv7_NovaSeq_v1`, 1,200 sampled chr21 strand vectors), exact minus legacy EB for a tumor with 2+2 alt
+    reads at 60+60× ranges from −3.98 to +1.52, and 142 of 1,200 sites cross EB 4. With 100 all-zero normals at
+    ~300×, EB for 2 alt reads goes from 4.1 (legacy) to 8.2 (exact). EB thresholds set on legacy values
+    (`filter_settings.xlsx`) therefore do not carry over (plan D-Q15).
+  - **Not bit-identical across scipy versions.** b of all-zero vectors sits on a very flat objective, so its last
+    digits depend on the optimiser's stopping point: between scipy 1.9.3 and 1.18.1, 121 of 420 WES-like exact fits
+    differ after rounding (relative ≤ 2e-4), which changes EB by ≤ 0.001. Compare AB caches across environments with
+    a tolerance, not byte for byte.
 - **EB precision ceiling.** `1 - chi2.cdf` cannot go below ~2.2e-16, so no EB fell between ~16 and 60. The default
-  `--fisher sf` uses the survival function. Below ~16 both give the same values (relative difference < 1e-9), so
-  thresholds in that range are unaffected (plan D-Q4).
+  `--fisher sf` uses the survival function. The two are identical below EB ~7 (relative difference < 1e-9), within
+  0.005 EB below 15, and diverge only near the legacy ceiling of ~15.95, so thresholds in the usual range (EB 3–5)
+  are unaffected (plan D-Q4, now D-Q15).
 - **No data → EB 0.** A variant without PON or tumor coverage got EB 0, i.e. it looked like an artifact. The default
   is now `NA` (`--missing zero` restores 0). MNVs/complex alleles also get `NA` (the legacy code returned garbage for
   them).

@@ -22,8 +22,9 @@ def _common(p: argparse.ArgumentParser, threads=True) -> None:
 def _fit_opt(p: argparse.ArgumentParser) -> None:
     p.add_argument(
         "--fit", choices=["exact", "legacy"], default="exact",
-        help="beta-binomial fit: exact (analytic gradient, scipy-version stable; default) or legacy (numerical "
-        "gradient, early stop; matches old values only with scipy 1.9)",
+        help="beta-binomial fit: exact (analytic gradient, restarted until stationary: the penalised optimum; "
+        "default) or legacy (numerical gradient, stops early like the old code and Genomon EBFilter; old values only "
+        "with scipy < 1.15). On realistic PONs the two differ by several EB units (see CHANGELOG.md)",
     )
 
 
