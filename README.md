@@ -134,7 +134,9 @@ pytest -q          # mawk tools, core math, legacy parity, VCF conversion, scori
 `tests/legacy/make_legacy_outputs.py`; `tests/data/make_synthetic.py` makes the synthetic pileups and
 `tests/data/make_fits_exact.py` the golden exact fits (`fits_exact.tsv`, incl. large-PON vectors). `fits_hard.tsv`
 holds PON vectors where a single L-BFGS-B run stops at a non-stationary point. The suite also runs in
-`somvar-legacy` (`PYTHONPATH=src`), where the legacy-fit reproduction test is not skipped.
+`somvar-legacy` (`PYTHONPATH=src`), where the legacy-fit reproduction test is not skipped. `tests/test_real_pon.py` is
+opt-in (`EBSCORE_REAL_PONMATRIX=<PONmatrix folder>`): it checks the exact fit on real PON rows and prints the EB shift
+exact vs legacy; real PON data never goes into the repo.
 
 ## Docker
 
