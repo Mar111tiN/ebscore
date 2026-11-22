@@ -1,0 +1,6 @@
+N01.bam
+N02.bam
+N03.bam
+N04.bam
+N05.bam
+N06.bam
