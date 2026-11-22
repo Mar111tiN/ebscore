@@ -183,6 +183,8 @@ def score_variants(
     ponmatrix = Path(ponmatrix)
     if not (ponmatrix / "matrix").is_dir():
         raise ValueError(f"{ponmatrix} is not a PONmatrix folder (no matrix/ subfolder)")
+    if ab_dir is not None and use_ab_cache and not Path(ab_dir).is_dir():
+        raise ValueError(f"AB cache folder {ab_dir} does not exist")
     ab_dir = Path(ab_dir) if ab_dir is not None else ponmatrix / "AB"
     vdf = read_variants(variants) if not isinstance(variants, pd.DataFrame) else variants.copy()
     if chroms:

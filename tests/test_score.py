@@ -2,6 +2,7 @@
 
 import gzip
 import json
+import logging
 import os
 import shutil
 import stat
@@ -269,7 +270,7 @@ def test_score_uses_a_matching_cache_only(built_cache, tmp_path, monkeypatch):
     scored(ponmatrix=pon)
 
 
-def test_ab_cache_penalty_and_explicit_cache_dir(legacy_matrix_only, tmp_path):
+def test_ab_cache_penalty_and_explicit_cache_dir(legacy_matrix_only, tmp_path, caplog):
     out = tmp_path / "cache"
     cli("ab-cache", "--ponmatrix", legacy_matrix_only, "-o", out, "--chrom", "chr7", "--penalty", 2.0)
     assert not (legacy_matrix_only / "AB").exists(), "nothing written into the input PONmatrix"
@@ -279,9 +280,13 @@ def test_ab_cache_penalty_and_explicit_cache_dir(legacy_matrix_only, tmp_path):
     dep = [[int(x) for x in s.split("|")] for s in m["Depth"].split("=")]
     alt = [[int(x) for x in s.split("|")] for s in m["T"].split("=")]
     assert parse_ab(ab["T"]) == tuple(fit_bb(np.transpose([dep[s], alt[s]]), penalty=2.0) for s in (0, 1))
-    with_cache = scored(ponmatrix=legacy_matrix_only, chroms=["chr7"], penalty=2.0, ab_dir=out / "AB")
+    with caplog.at_level(logging.INFO, logger="ebscore"):
+        with_cache = scored(ponmatrix=legacy_matrix_only, chroms=["chr7"], penalty=2.0, ab_dir=out / "AB")
+    assert "using the AB cache for chr7" in caplog.text
     fly = scored(ponmatrix=legacy_matrix_only, chroms=["chr7"], penalty=2.0)
     pd.testing.assert_frame_equal(with_cache, fly)
+    with pytest.raises(ValueError, match="does not exist"):
+        scored(ponmatrix=legacy_matrix_only, ab_dir=tmp_path / "nope")
 
 
 def test_read_only_ponmatrix(legacy_ponmatrix, tmp_path):
