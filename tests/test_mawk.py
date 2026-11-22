@@ -47,6 +47,26 @@ def test_cleanpileup_use_samples_is_numeric():
     assert out[0] == "Chr\tStart\tRef\tRead1\tRead2"
 
 
+def test_multi_digit_indels_match_legacy():
+    # indels of 10+ bases (+12, -10, ^5.+11): the expected text is the legacy tools' output (main:shell/, via bash)
+    text = (
+        "chr1\t10\tA\t6\t.+12ACGTACGTACGT,-10acgtacgtac^5.+11ACGTACGTACG$,.+2AC.\tIIIIII\t3\t,+10acgtacgtac.T\tIII\n"
+        "chr1\t11\tC\t4\t^I,-12ACGTACGTACGTGG.$.\tIIII\t2\t.,\tII\n"
+    )
+    clean = run_tool(tool("cleanpileup"), text)
+    assert clean == "Chr\tStart\tRef\tRead1\tRead2\nchr1\t10\tA\tIdI,I.\ti.T\nchr1\t11\tC\tDGG..\t.,\n"
+    assert run_tool(tool("pile2count"), clean) == (
+        "Chr\tStart\tRef\tA\tG\tC\tT\tI\tD\tDepth\n"
+        "chr1\t10\tA\t0|0=0|0\t0|0=0|0\t0|0=0|0\t0|1=0|0\t3|0=0|1\t0|0=1|0\t4|2=2|1\n"
+        "chr1\t11\tC\t0|0=0|0\t2|0=0|0\t0|0=0|0\t0|0=0|0\t0|0=0|0\t1|0=0|0\t5|1=0|1\n"
+    )
+
+
+def test_cleanpileup_chromosome_with_percent_sign():
+    # legacy used the chromosome name as a printf format and crashed ("not enough arguments passed to printf")
+    assert run_tool(tool("cleanpileup"), "chr%d\t10\tA\t2\t.,\tII\n").splitlines()[1] == "chr%d\t10\tA\t.,"
+
+
 def test_cleanpileup_start_markers_with_special_mapq_chars():
     # ^$ ^+ ^- ^5 are read starts with MAPQ chars that look like pileup syntax
     line = "chr1\t10\tA\t5\t^$.^+,^-A^5c.$\tIIIII\n"
