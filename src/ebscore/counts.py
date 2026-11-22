@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from itertools import chain
+
 STRANDSEP = "="
 ADSEP = "<"
 SAMPLESEP = "|"
@@ -51,12 +53,13 @@ def parse_ab(cell: str) -> tuple[tuple[float, float], tuple[float, float]]:
     return (float(ap), float(bp)), (float(am), float(bm))
 
 
-def fit_key(depths: list[int], alts: list[int]) -> tuple[tuple[int, int], ...]:
-    """Cache key of one fit: the (depth, alt) pairs in PON sample order.
+def fit_key(depths: list[int], alts: list[int]) -> tuple[int, ...]:
+    """Cache key of one fit: the (depth, alt) pairs in PON sample order, flattened (d1, a1, d2, a2, ...).
 
-    Identical vectors are fitted once; this replaces the legacy shared zero cache (``zerocache.py``). The pairs are
+    Identical vectors are fitted once; this replaces the legacy shared zero cache (``zerocache.py``). A flat tuple of
+    ints takes about a fifth of the memory of a tuple of pairs (``fitting`` reshapes it to N x 2). The pairs are
     deliberately not sorted: the likelihood is order-invariant in exact arithmetic, but the fit is not. For all-zero
     alt vectors the objective is so flat that L-BFGS-B with a numerical gradient stops at order-dependent points
     (seen: a = 0.1 vs 0.134, about 5 % of AB cells). Keeping the order reproduces the legacy fits exactly.
     """
-    return tuple(zip(depths, alts))
+    return tuple(chain.from_iterable(zip(depths, alts)))

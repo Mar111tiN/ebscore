@@ -19,10 +19,34 @@ from ebscore.variants import add_lookup, read_table, read_vcf, vcf_record_to_ann
         (("chr1", 100, "ATG", "AC"), None),  # complex
         (("chr1", 100, "A", "<DEL>"), None),
         (("chr1", 100, "A", "*"), None),
+        # alleles of multi-allelic records keep the right-hand context of the longest REF
+        (("chr1", 100, "ATT", "AT"), ("chr1", 101, 101, "T", "-")),
+        (("chr1", 100, "ATT", "ATTT"), ("chr1", 100, 100, "-", "T")),
+        (("chr1", 100, "AT", "GT"), ("chr1", 100, 100, "A", "G")),
+        (("chr1", 100, "ATG", "AG"), ("chr1", 101, 101, "T", "-")),
+        (("chr1", 100, "AT", "ACT"), ("chr1", 100, 100, "-", "C")),
+        (("chr1", 103, "GCCC", "GCC"), ("chr1", 104, 104, "C", "-")),
+        (("chr1", 103, "GCCC", "GC"), ("chr1", 104, 105, "CC", "-")),
+        (("chr1", 100, "ACGT", "TCGT"), ("chr1", 100, 100, "A", "T")),
+        (("chr1", 100, "ATGT", "ACGT"), ("chr1", 101, 101, "T", "C")),
+        (("chr1", 100, "ATG", "ACT"), None),  # MNV with context
     ],
 )
 def test_vcf_record_to_annovar(rec, expected):
     assert vcf_record_to_annovar(*rec) == expected
+
+
+def test_read_vcf_splits_multiallelic_records(tmp_path):
+    f = tmp_path / "m.vcf"
+    f.write_text("##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+                 "chr1\t100\t.\tATT\tAT,ATTT,GTT,<NON_REF>\t.\tPASS\t.\n"
+                 "chr1\t200\t.\tC\tG,CA\t.\tPASS\t.\n")
+    df = read_vcf(f)
+    assert df["vcf_alt"].tolist() == ["AT", "ATTT", "GTT", "<NON_REF>", "G", "CA"]
+    assert (df["vcf_pos"] == [100] * 4 + [200] * 2).all() and set(df["vcf_ref"]) == {"ATT", "C"}
+    got = [tuple(r) if pd.notna(r[1]) else None for r in df[["Chr", "Start", "End", "Ref", "Alt"]].itertuples(index=False)]
+    assert got == [("chr1", 101, 101, "T", "-"), ("chr1", 100, 100, "-", "T"), ("chr1", 100, 100, "A", "G"), None,
+                   ("chr1", 200, 200, "C", "G"), ("chr1", 200, 200, "-", "A")]
 
 
 def test_synthetic_vcf_matches_table():

@@ -19,14 +19,22 @@ def is_vcf(path) -> bool:
 
 
 def vcf_record_to_annovar(chrom: str, pos: int, ref: str, alt: str):
-    """One biallelic VCF record -> (Chr, Start, End, Ref, Alt) in ANNOVAR coordinates, or None if unsupported.
+    """One VCF allele (REF, one ALT) -> (Chr, Start, End, Ref, Alt) in ANNOVAR coordinates, or None if unsupported.
 
     SNV ``chr1 100 A G`` -> ``chr1 100 100 A G``; insertion ``chr1 100 A AT`` -> ``chr1 100 100 - T``;
     deletion ``chr1 100 AT A`` -> ``chr1 101 101 T -``. MNVs, complex and symbolic alleles return None.
+
+    The shared trailing bases are trimmed first, then the shared leading bases (as ``bcftools norm`` does), so the
+    alleles of a multi-allelic record, which keep the right-hand context of the longest REF (``ATT AT,ATTT``), map to
+    the same events as their biallelic forms (``AT A``, ``A AT``). Without the reference an indel inside a repeat
+    cannot be left-aligned: normalise the VCF upstream (``bcftools norm -f <fasta>``).
     """
     if alt in ("*", ".") or alt.startswith("<") or "[" in alt or "]" in alt:
         return None
     ref, alt = ref.upper(), alt.upper()
+    # trim the shared trailing bases (right-hand context of multi-allelic records), keeping one base on each side
+    while len(ref) > 1 and len(alt) > 1 and ref[-1] == alt[-1]:
+        ref, alt = ref[:-1], alt[:-1]
     # trim the shared leading bases (VCF anchor)
     while len(ref) > 0 and len(alt) > 0 and ref[0] == alt[0] and (len(ref) > 1 or len(alt) > 1):
         ref, alt, pos = ref[1:], alt[1:], pos + 1
@@ -57,6 +65,8 @@ def read_vcf(path) -> pd.DataFrame:
                 annovar = vcf_record_to_annovar(chrom, pos, ref, alt)
                 rows.append((*(annovar or (chrom, pd.NA, pd.NA, pd.NA, pd.NA)), chrom, pos, ref, alt))
     df = pd.DataFrame(rows, columns=VARIANT_COLUMNS + VCF_COLUMNS)
+    for col in ("Start", "End", "vcf_pos"):
+        df[col] = pd.array(df[col], dtype="Int64")
     n_bad = int(df["Start"].isna().sum())
     if n_bad:
         log.warning("%d VCF alleles are MNV/complex/symbolic and get EB = NA", n_bad)
@@ -64,7 +74,10 @@ def read_vcf(path) -> pd.DataFrame:
 
 
 def read_table(path) -> pd.DataFrame:
-    """Read a tab-separated variant table with at least ``Chr Start End Ref Alt`` (extra columns pass through)."""
+    """Read a tab-separated variant table with at least ``Chr Start End Ref Alt`` (extra columns pass through).
+
+    Every column is read as text, so values pass through unchanged (``vcf_pos`` of a ``vcf2table`` table too).
+    """
     df = pd.read_csv(path, sep="\t", dtype=str, keep_default_na=False)
     missing = [c for c in VARIANT_COLUMNS if c not in df.columns]
     if missing:

@@ -12,39 +12,73 @@ the legacy defects fixed (see `CHANGELOG.md`) and a Dockerfile. `main` keeps the
 ## Install
 
 ```bash
-conda env create -f environment.yml      # or any env with python>=3.10, numpy, pandas, scipy, samtools, mawk
-conda activate ebscore
+conda env create -f environment.yml      # runtime deps + pytest; or any env with python>=3.10, numpy, pandas, scipy,
+conda activate ebscore                   # samtools, mawk (and pytest for the tests)
 pip install --no-deps --no-build-isolation .
 ```
 
 ## Commands
 
-All commands take explicit paths, log to stderr and write files. `-t/--threads` parallelises, `-v` shows every shell
-command.
+All commands take explicit paths, log to stderr and write files. `-t/--threads` parallelises, `-v/--verbose` shows
+every shell command, `--quiet` keeps warnings and errors only. Repeated `--chrom` values count once.
 
 ```bash
 # 1. PONmatrix from normal BAMs/CRAMs (one-off per kit + normal set). Writes <dir>/matrix/<chrom>.pon.gz + PON_list.txt.
 #    Builds every BED chromosome by default; --chrom chr7 builds one (scatter per chromosome).
 ebscore pon-matrix --bam-list PON_list.txt --fasta genome.fa --bed kit.covered.bed -o PONmatrix/ -t 8
 
-# 2. Optional AB cache (12 fits per PON position; see "AB cache" below). Writes <dir>/AB/<chrom>.AB.gz.
-ebscore ab-cache --ponmatrix PONmatrix/ --chrom chr7 -t 8
+# 2. Optional AB cache (12 fits per PON position; see "AB cache" below). Writes <outdir>/AB/<chrom>.AB.gz + .AB.json.
+#    -o is required; give the PONmatrix folder to add AB/ to it, or a new folder (read-only PON, Nextflow).
+ebscore ab-cache --ponmatrix PONmatrix/ --chrom chr7 -o ABout/ -t 8
 
 # 3. Paired pileup per tumor/normal pair (normal first). Shared by EB and PON-CNV (myCNV).
 ebscore pileup --normal N.bam --tumor T.bam --fasta genome.fa --bed kit.covered.bed -o pair.pileup.gz -t 4
 
-# 4. EB per variant (table in ANNOVAR coordinates, or a VCF).
+# 4. EB per variant (table in ANNOVAR coordinates, or a VCF; left-align indels first: bcftools norm -f genome.fa).
 ebscore score --variants calls.vcf.gz --ponmatrix PONmatrix/ --pileup pair.pileup.gz -o calls.EB.tsv \
     --vcf-annotation calls.EB.annot.tsv --exclude-sample <matched normal, if it is in the PON> -t 4
 #    or straight from the tumor BAM: --tumor-bam T.bam --fasta genome.fa
+#    PON_list.txt and matrix disagree in size (legacy HAEv7 PON: 26 vs 28)? exclude by column: --exclude-index 7
 
 # VCF -> ANNOVAR-coordinate table (with the original VCF coordinates as vcf_* columns)
 ebscore vcf2table --vcf calls.vcf.gz -o calls.tsv
 ```
 
 `score` output: the input columns, then `PON+ PON- EB` (`PON±` = `alt1|…|altN<depth1|…|depthN` per strand;
-`--keep-matrix` adds `Tumor` and `AB`). `--vcf-annotation` writes `#CHROM POS REF ALT EB` for
-`bgzip` + `tabix -s1 -b2 -e2` + `bcftools annotate -c CHROM,POS,REF,ALT,INFO/EB`.
+`--keep-matrix` adds `Tumor` and `AB`). No variants give a header-only output. `--vcf-annotation` writes
+`#CHROM POS REF ALT EB` (VCF coordinates, one line per scored ALT, sorted by chromosome and POS) plus `<file>.hdr`,
+the INFO header with `Number=A`, so multi-allelic records keep one EB per ALT:
+
+```bash
+bgzip -c calls.EB.annot.tsv > ann.tsv.gz && tabix -s1 -b2 -e2 ann.tsv.gz
+bcftools annotate -a ann.tsv.gz -h calls.EB.annot.tsv.hdr -c CHROM,POS,REF,ALT,INFO/EB calls.vcf.gz -Oz -o calls.EB.vcf.gz
+```
+
+### Options
+
+| Command | Option | Meaning |
+|---|---|---|
+| all | `-t/--threads N`, `-v/--verbose`, `--quiet` | parallelism (not `vcf2table`); debug logging with shell commands; warnings only |
+| `pileup` | `--normal`, `--tumor`, `--fasta`, `--bed`, `-o/--output` | inputs (normal = sample 1) and the `.pileup.gz` |
+| | `--chrom C` | only these chromosomes (repeatable; default: whole BED) |
+| | `--min-mapq`, `--min-baseq` | samtools `-q`/`-Q` (20/25) |
+| | `--tmpdir DIR` | scratch for the per-chromosome parts (default: the output's folder) |
+| `pon-matrix` | `--bam-list`, `--fasta`, `--bed`, `-o/--outdir` | one BAM/CRAM per line (relative paths: against the list's folder, symlinks not followed) |
+| | `--chrom`, `--min-mapq`, `--min-baseq` | as for `pileup` |
+| `ab-cache` | `--ponmatrix`, `--chrom` (required, repeatable), `-o/--outdir` (required) | writes `<outdir>/AB/<chrom>.AB.gz` + `.AB.json` |
+| | `--penalty`, `--fit` | fit settings, recorded in the manifest |
+| | `--chunk-rows N` | PONmatrix rows per chunk (50,000; ~0.2 GB of keys per chunk with 100 normals) |
+| `score` | `--variants`, `--ponmatrix`, `-o/--output` | inputs and the output TSV |
+| | `--pileup` or `--tumor-bam` + `--fasta` | tumor counts from the paired pileup or straight from the BAM |
+| | `--tumor-column ReadN` | pileup column of the tumor (default `Read2`, else the last `Read` column) |
+| | `--exclude-sample NAME`, `--exclude-index N` | drop PON samples (matched normal) by list entry/file name, or by 1-based column |
+| | `--ab-cache DIR`, `--no-ab-cache` | AB cache folder (default `<ponmatrix>/AB`); never use one |
+| | `--penalty`, `--fit`, `--fisher`, `--missing` | see the next table |
+| | `--chrom C` | only variants on these chromosomes |
+| | `--allow-missing-chrom` | EB NA instead of exit 2 when no variant chromosome has a matrix file |
+| | `--keep-matrix`, `--vcf-annotation FILE`, `--tmpdir DIR` | extra columns; bcftools annotation (+ `.hdr`); scratch (default: system temp) |
+| | `--min-mapq`, `--min-baseq` | for `--tumor-bam` |
+| `vcf2table` | `--vcf`, `-o/--output` | VCF -> ANNOVAR-coordinate table |
 
 ### Options that change values
 
@@ -75,24 +109,32 @@ PONmatrix/
   PON_list.txt          BAM paths in matrix column order
   matrix/<chrom>.pon.gz Chr Start Ref A G C T I D Depth; cells c1|…|cN=c1|…|cN (+ strand = - strand)
   AB/<chrom>.AB.gz      optional: Chr Start Ref A G C T I D; cells a+|b+=a-|b-
+  AB/<chrom>.AB.json    its manifest: penalty, fit method, number of PON samples, matrix file size
 ```
 
-The same `matrix/` feeds the PON-CNV of myCNV. Scoring reads the folder only (temp files go to `--tmpdir`).
+The same `matrix/` feeds the PON-CNV of myCNV. Scoring reads the folder only (temp files go to `--tmpdir`), so it
+can be mounted read-only. A `--ponmatrix` without `matrix/`, or without a file for any variant chromosome, fails
+(exit 2).
 
 ### AB cache
 
-Fitting on the fly at the called positions is the default and needs no cache. The AB cache precomputes every
-position × letter × strand (12 fits per position; a WES PON is ~50 M positions), which only pays off for very large
-call sets. The cache is valid for the full PON only: with `--exclude-sample` the fits always run on the fly.
+`score` fits on the fly at the called positions unless a matching AB cache exists; no cache is needed. The AB cache
+precomputes every position × letter × strand (12 fits per position; a WES PON is ~50 M positions), which only pays
+off for very large call sets. `score` uses a cache only where its manifest matches `--penalty`, `--fit` and the
+current matrix (number of samples, file size), and never with `--exclude-sample`/`--exclude-index`; otherwise it
+warns and fits on the fly. A cache without manifest (built by the legacy code) counts as penalty 0.5 + `--fit legacy`.
 
 ## Tests
 
 ```bash
-pytest -q          # mawk tools, core math, legacy parity, VCF conversion, end-to-end with simulated BAMs
+pytest -q          # mawk tools, core math, legacy parity, VCF conversion, scoring options, simulated BAMs
 ```
 
 `tests/data/legacy/` holds outputs of the unmodified `main` code (py 3.9, pandas 1.5.2, scipy 1.9.3), made by
-`tests/legacy/make_legacy_outputs.py`; `tests/data/make_synthetic.py` makes the synthetic pileups.
+`tests/legacy/make_legacy_outputs.py`; `tests/data/make_synthetic.py` makes the synthetic pileups and
+`tests/data/make_fits_exact.py` the golden exact fits (`fits_exact.tsv`, incl. large-PON vectors). `fits_hard.tsv`
+holds PON vectors where a single L-BFGS-B run stops at a non-stationary point. The suite also runs in
+`somvar-legacy` (`PYTHONPATH=src`), where the legacy-fit reproduction test is not skipped.
 
 ## Docker
 

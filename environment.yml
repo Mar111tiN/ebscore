@@ -1,5 +1,8 @@
-# ebscore runtime + test env. No pins (plan D18): the solver picks current versions.
-# Used by the Dockerfile (micromamba) and for local tests: conda env create -f environment.yml
+# ebscore runtime + test env (runtime deps + pytest). No pins (plan D18): the solver picks current versions.
+# Used by the Dockerfile (micromamba install -n base -f environment.yml) and for local CI-like checks:
+#   conda env create -f environment.yml -n ebscore-ci
+#   conda run -n ebscore-ci python -m pip install --no-deps --no-build-isolation .
+#   conda run -n ebscore-ci python -m pytest -q
 name: ebscore
 channels:
   - conda-forge
@@ -15,3 +18,4 @@ dependencies:
   - mawk
   - samtools
   - gzip
+  - pytest

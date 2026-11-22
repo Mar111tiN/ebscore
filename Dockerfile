@@ -17,7 +17,6 @@ RUN /opt/conda/bin/python -m pip install --no-cache-dir --no-deps --no-build-iso
 
 # ---- test: docker build --target test . ; never shipped ----
 FROM build AS test
-RUN micromamba install -y -n base -c conda-forge pytest && micromamba clean -a -y
 COPY --chown=$MAMBA_USER:$MAMBA_USER tests /tmp/ebscore/tests
 WORKDIR /tmp/ebscore
 RUN /opt/conda/bin/python -m pytest -q -p no:cacheprovider tests

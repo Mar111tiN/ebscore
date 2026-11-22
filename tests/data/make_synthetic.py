@@ -5,11 +5,13 @@ Writes into tests/data/synthetic/:
 - pon.mpileup       raw `samtools mpileup` text of 6 PON normals
 - pair.mpileup      raw mpileup of normal (sample 1) + tumor (sample 2)
 - variants.tsv      ANNOVAR-style variant table (Chr Start End Ref Alt + scenario)
-- variants.vcf      the same variants as VCF (+ one MNV)
+- variants.vcf      the same variants as VCF (the multi-allelic sites as one record with two ALTs)
 
-Scenarios cover: background noise, a strand-biased PON artifact, real SNVs, a strong SNV (EB > 16, legacy jumps to
-60), insertions, deletions, a position without PON coverage, a position without tumor coverage, a multi-allelic site
-and an MNV. Read tokens include start markers with special MAPQ chars (^$, ^+, ^-, ^5) and end markers.
+Scenarios cover: background noise, a strand-biased PON artifact, real SNVs, a strong SNV (400x tumor; with only 6 PON
+normals at 20-80x it still scores EB < 16, so the sf/legacy Fisher split is tested on the large-PON fixture in
+conftest.py), insertions, deletions, a position without PON coverage, a position without tumor coverage, a
+multi-allelic site and an MNV. Read tokens include start markers with special MAPQ chars (^$, ^+, ^-, ^5) and end
+markers.
 
 Run: python tests/data/make_synthetic.py   (any env with numpy)
 """
@@ -180,7 +182,9 @@ def main():
         fh.write("##fileformat=VCFv4.2\n")
         for c, (s, n) in CHROMS.items():
             fh.write(f"##contig=<ID={c},length={s + n + 100}>\n")
+        fh.write('##INFO=<ID=SC,Number=1,Type=String,Description="test scenario">\n')
         fh.write("#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n")
+        records = []  # [chrom, pos, ref, [alts], kind]; same chrom/pos/ref -> one multi-allelic record
         for chrom, s, e, ref, alt, kind in variants:
             if ref == "-":  # insertion after s
                 anchor = ref_at(chrom, s)
@@ -190,7 +194,12 @@ def main():
                 rec = (s - 1, anchor + ref, anchor)
             else:
                 rec = (s, ref, alt)
-            fh.write(f"{chrom}\t{rec[0]}\t.\t{rec[1]}\t{rec[2]}\t.\tPASS\tSC={kind}\n")
+            if records and records[-1][:3] == [chrom, rec[0], rec[1]]:
+                records[-1][3].append(rec[2])
+            else:
+                records.append([chrom, rec[0], rec[1], [rec[2]], kind])
+        for chrom, pos, ref, alts, kind in records:
+            fh.write(f"{chrom}\t{pos}\t.\t{ref}\t{','.join(alts)}\t.\tPASS\tSC={kind}\n")
     print(f"{len(pon_lines)} PON lines, {len(pair_lines)} pair lines, {len(variants)} variants -> {OUT}")
 
 

@@ -23,7 +23,7 @@ Port of `main` (HEAD `ef67010`) for kumo-variant-calling-nf. Values were checked
   pileups with indels and start markers carrying pileup-like MAPQ characters (`^$`, `^+`, `^-`).
 - Beta-binomial likelihood, penalty term, start values, bounds, upper-tail p-value, Fisher combination (with
   `--fisher legacy`), EB rounding and the 0/60 caps.
-- With the same AB cache, EB equals the legacy `run_ebscore` output for 33 of the 35 legacy rows. The other 2 are the
+- With the same (legacy) AB cache and `--fit legacy`, EB equals the legacy `run_ebscore` output for 33 of the 35 legacy rows. The other 2 are the
   sorted-merge bug below.
 - With `--fit legacy` and scipy 1.9.3, all 102 test fits reproduce the legacy AB values exactly.
 
@@ -96,3 +96,29 @@ Port of `main` (HEAD `ef67010`) for kumo-variant-calling-nf. Values were checked
 - `pon-matrix`: relative BAM-list entries resolve against the folder the list is seen in, without following a symlink
   (Nextflow stages the list as a symlink next to the BAMs). `PON_list.txt` is written via a temp file + rename, so a
   staged input symlink of that name is replaced instead of rewriting its target.
+
+### Scoring, AB cache, inputs and outputs (port behaviour, fixed after review)
+- **VCF alleles with right-hand context.** The shared trailing bases are trimmed before the shared leading ones (as
+  `bcftools norm` does). In a multi-allelic record the shorter alleles keep the longest REF's context (Mutect2 writes
+  `ATT AT,ATTT`); before, such indels were shifted to the right and scored EB 0 (artifact-like, also in the VCF
+  annotation), and SNVs/insertions with context got NA. Indels inside repeats still need left-normalisation upstream
+  (`bcftools norm -f <fasta>`).
+- **AB cache manifest.** `ab-cache` writes `<chrom>.AB.json` next to `<chrom>.AB.gz` (penalty, fit method, number of
+  PON samples, matrix file size). `score` uses a cache only where it matches `--penalty`, `--fit` and the current
+  matrix, otherwise it warns and fits on the fly; before, any cache silently overrode `--penalty`/`--fit` and was
+  never checked against the PON. A cache without manifest (legacy) counts as penalty 0.5 + `--fit legacy`, so with
+  the default `--fit exact` it is not used. Positions missing from a used cache are counted in a warning.
+- `ab-cache -o/--outdir` is required: nothing is written into the input PONmatrix by default (pass the PONmatrix
+  folder to add `AB/` to it). `score --ab-cache DIR` points at a cache outside the PONmatrix.
+- Fit keys are flat int tuples, and the all-zero letters of a row share one key per strand: 5,000 PON rows x 100
+  normals need ~19 MB of keys instead of ~440 MB (default 50,000-row chunk: ~0.2 GB instead of ~4 GB).
+- `--vcf-annotation`: sorted by numeric POS also for `vcf2table` tables (before, text order, which tabix rejects),
+  and a `<file>.hdr` with `##INFO=<ID=EB,Number=A,Type=Float,...>` is written for `bcftools annotate -h` (with
+  `Number=1` bcftools keeps only the first allele's EB of a multi-allelic record).
+- No variants (empty VCF, header-only table, `--chrom` without a match) gives a header-only output and exit 0 (before:
+  KeyError, exit 1).
+- A `--ponmatrix` without `matrix/`, or whose `matrix/` has no file for any variant chromosome, fails with exit 2
+  (before: exit 0 with EB NA everywhere); `--allow-missing-chrom` restores the NA output for the second case.
+- Python API: `EB` is float64 (NaN = no data) instead of an object column with `pd.NA`; VCF `Start`/`End`/`vcf_pos`
+  are `Int64`.
+- The synthetic test VCF writes the multi-allelic sites as one record with two ALTs (and declares its INFO field).

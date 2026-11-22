@@ -61,10 +61,12 @@ def build_parser() -> argparse.ArgumentParser:
     _pileup_opts(p)
     _common(p)
 
-    p = sub.add_parser("ab-cache", help="optional: fit the AB cache (AB/<chrom>.AB.gz) for a PONmatrix")
-    p.add_argument("--ponmatrix", required=True, help="PONmatrix folder")
+    p = sub.add_parser("ab-cache", help="optional: fit the AB cache (AB/<chrom>.AB.gz + .AB.json) for a PONmatrix")
+    p.add_argument("--ponmatrix", required=True, help="PONmatrix folder (reads matrix/<chrom>.pon.gz)")
     p.add_argument("--chrom", action="append", required=True, help="chromosome(s) to fit (repeatable)")
-    p.add_argument("-o", "--outdir", help="output folder for AB/ (default: the PONmatrix folder)")
+    p.add_argument("-o", "--outdir", required=True,
+                   help="output folder; gets AB/<chrom>.AB.gz and AB/<chrom>.AB.json (pass the PONmatrix folder to "
+                   "add the cache to it)")
     p.add_argument("--penalty", type=float, default=0.5, help="fit penalty on ln(a+b) (default 0.5)")
     p.add_argument("--chunk-rows", type=int, default=50000, help="PONmatrix rows per chunk (default 50000)")
     _fit_opt(p)
@@ -79,10 +81,16 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--tumor-column", help="pileup read column of the tumor (default Read2, else the last Read column)")
     p.add_argument("--fasta", help="reference FASTA for --tumor-bam")
     p.add_argument("-o", "--output", required=True, help="output TSV: input columns + PON+ PON- EB")
-    p.add_argument("--vcf-annotation", help="also write #CHROM POS REF ALT EB (VCF input only) for bcftools annotate")
+    p.add_argument("--vcf-annotation", help="also write #CHROM POS REF ALT EB (VCF or vcf2table input) + <file>.hdr "
+                   "(INFO header, Number=A) for bgzip + tabix -s1 -b2 -e2 + bcftools annotate")
     p.add_argument("--exclude-sample", action="append", default=[], help="drop this PON sample (e.g. the matched normal; repeatable)")
     p.add_argument("--exclude-index", action="append", type=int, default=[], help="drop PON column N (1-based; repeatable)")
-    p.add_argument("--no-ab-cache", action="store_true", help="fit on the fly even if AB/ exists")
+    p.add_argument("--ab-cache", dest="ab_dir", metavar="DIR",
+                   help="AB cache folder (<chrom>.AB.gz + .AB.json; default <ponmatrix>/AB). Used only where its "
+                   "manifest matches --penalty, --fit and the matrix; never with excluded samples")
+    p.add_argument("--no-ab-cache", action="store_true", help="fit on the fly even if an AB cache exists")
+    p.add_argument("--allow-missing-chrom", action="store_true",
+                   help="give EB NA instead of failing when no variant chromosome has a PONmatrix file")
     p.add_argument("--penalty", type=float, default=0.5, help="fit penalty on ln(a+b) (default 0.5)")
     p.add_argument("--fisher", choices=["sf", "legacy"], default="sf", help="sf (default) or legacy 1-cdf (EB jumps 16 -> 60)")
     _fit_opt(p)
@@ -125,8 +133,8 @@ def main(argv=None) -> int:
             from .abcache import ab_cache
 
             for chrom in args.chrom:
-                out = Path(args.outdir) / "AB" / f"{chrom}.AB.gz" if args.outdir else None
-                ab_cache(args.ponmatrix, chrom, out, args.penalty, args.threads, args.chunk_rows, args.fit)
+                ab_cache(args.ponmatrix, chrom, Path(args.outdir) / "AB", args.penalty, args.threads, args.chunk_rows,
+                         args.fit)
         elif args.command == "score":
             from .score import score_variants, write_vcf_annotation
 
@@ -136,13 +144,13 @@ def main(argv=None) -> int:
                 exclude_samples=args.exclude_sample, exclude_index=args.exclude_index, penalty=args.penalty,
                 fisher=args.fisher, missing=args.missing, threads=args.threads, chroms=args.chrom,
                 min_mapq=args.min_mapq, min_baseq=args.min_baseq, keep_matrix=args.keep_matrix, tmpdir=args.tmpdir,
-                fit_method=args.fit,
+                fit_method=args.fit, ab_dir=args.ab_dir, allow_missing_chrom=args.allow_missing_chrom,
             )
             df.to_csv(args.output, sep="\t", index=False, na_rep="NA")
             log.info("wrote %d variants to %s", len(df), args.output)
             if args.vcf_annotation:
                 n = write_vcf_annotation(df, args.vcf_annotation)
-                log.info("wrote %d EB annotations to %s", n, args.vcf_annotation)
+                log.info("wrote %d EB annotations to %s (+ .hdr)", n, args.vcf_annotation)
         elif args.command == "vcf2table":
             from .variants import read_vcf
 

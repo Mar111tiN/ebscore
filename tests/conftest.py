@@ -37,6 +37,53 @@ def legacy_matrix_only(tmp_path_factory):
     return dst
 
 
+# ---------------------------------------------------------------- a large synthetic PONmatrix (WES-like PON size)
+LARGE_N = 32
+
+
+@pytest.fixture(scope="session")
+def large_pon(tmp_path_factory):
+    """PONmatrix with 32 normals at ~200x (Poisson 100 per strand) on chrL, a paired pileup and a variant table.
+
+    The 6-normal legacy fixture cannot reach EB > 16 (its fits keep the tail heavy); here a 20+20 of 200+200 tumor SNV
+    over an all-zero PON scores EB ~26 with --fisher sf and 60 with --fisher legacy. Positions (Ref A):
+    1001 strong SNV (C 20+20), PON all zero    1002 strong SNV (C 20+20), PON sparse alts (sample 2: 2+1 C)
+    1003 SNV (C 3+3), covered by PON sample 5 only    1004 weak SNV (G 3+3), PON all zero
+    """
+    rng = np.random.default_rng(20261122)
+    d = tmp_path_factory.mktemp("large_pon")
+    (d / "pon" / "matrix").mkdir(parents=True)
+    (d / "pon" / "PON_list.txt").write_text("".join(f"L{i:02d}.bam\n" for i in range(1, LARGE_N + 1)))
+    rows = []
+    for pos in (1001, 1002, 1003, 1004):
+        dp, dm = rng.poisson(100, LARGE_N), rng.poisson(100, LARGE_N)
+        if pos == 1003:
+            keep = np.arange(LARGE_N) == 4
+            dp, dm = dp * keep, dm * keep
+        zero = "=".join(["|".join(["0"] * LARGE_N)] * 2)
+        cells = {b: zero for b in "AGCTID"}
+        cells["A"] = "|".join(map(str, dp)) + "=" + "|".join(map(str, dm))
+        if pos == 1002:
+            cp, cm = [0] * LARGE_N, [0] * LARGE_N
+            cp[1], cm[1] = 2, 1
+            cells["C"] = "|".join(map(str, cp)) + "=" + "|".join(map(str, cm))
+        depth = "|".join(map(str, dp)) + "=" + "|".join(map(str, dm))
+        rows.append("\t".join(["chrL", str(pos), "A", *(cells[b] for b in "AGCTID"), depth]))
+    with gzip.open(d / "pon" / "matrix" / "chrL.pon.gz", "wt") as fh:
+        fh.write("\t".join(["Chr", "Start", "Ref", *"AGCTID", "Depth"]) + "\n" + "\n".join(rows) + "\n")
+    tumor = {1001: ("C", 20), 1002: ("C", 20), 1003: ("C", 3), 1004: ("G", 3)}
+    with gzip.open(d / "pair.pileup.gz", "wt") as fh:
+        fh.write("Chr\tStart\tRef\tDepth1\tRead1\tDepth2\tRead2\n")
+        for pos, (alt, k) in tumor.items():
+            read2 = alt * k + alt.lower() * k + "." * (200 - k) + "," * (200 - k)
+            fh.write(f"chrL\t{pos}\tA\t200\t{'.' * 100 + ',' * 100}\t400\t{read2}\n")
+    with open(d / "variants.tsv", "w") as fh:
+        fh.write("Chr\tStart\tEnd\tRef\tAlt\n")
+        for pos, (alt, _) in tumor.items():
+            fh.write(f"chrL\t{pos}\t{pos}\tA\t{alt}\n")
+    return {"ponmatrix": d / "pon", "pileup": d / "pair.pileup.gz", "variants": d / "variants.tsv"}
+
+
 # ---------------------------------------------------------------- tiny BAMs for the samtools integration tests
 READ_LEN = 60
 

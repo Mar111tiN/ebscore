@@ -42,7 +42,7 @@ def test_end_to_end(bam_set, tmp_path):
     assert (real["EB"] > 1).all(), real
     assert (artifact["EB"] < real["EB"].min()).all(), artifact
 
-    run("ab-cache", "--ponmatrix", pon, "--chrom", "chrA", "--chrom", "chrB", "-t", 2)
+    run("ab-cache", "--ponmatrix", pon, "-o", pon, "--chrom", "chrA", "--chrom", "chrB", "-t", 2)
     eb_cache = tmp_path / "eb_cache.tsv"
     run("score", "--variants", b["variants"], "--ponmatrix", pon, "--pileup", pair1, "-o", eb_cache)
     pd.testing.assert_frame_equal(pd.read_csv(eb_cache, sep="\t"), a)
