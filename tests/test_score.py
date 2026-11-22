@@ -261,8 +261,9 @@ def test_score_uses_a_matching_cache_only(built_cache, tmp_path, monkeypatch):
         other = scored(ponmatrix=pon, keep_matrix=True, **kw)
         assert other.loc[hit, "AB"].tolist() != ["0.123|4.56=0.123|4.56"]
     man = json.loads((pon / "AB" / "chr7.AB.json").read_text())
-    (pon / "AB" / "chr7.AB.json").write_text(json.dumps(man | {"n_samples": 5}))
-    assert scored(ponmatrix=pon, keep_matrix=True).loc[hit, "AB"].tolist() != ["0.123|4.56=0.123|4.56"]
+    for change in ({"n_samples": 5}, {"matrix_size": man["matrix_size"] + 1}):  # another PON / a rebuilt matrix
+        (pon / "AB" / "chr7.AB.json").write_text(json.dumps(man | change))
+        assert scored(ponmatrix=pon, keep_matrix=True).loc[hit, "AB"].tolist() != ["0.123|4.56=0.123|4.56"]
 
     # the cache is really read: no fits at all when every position is in a matching cache
     (pon / "AB" / "chr7.AB.json").write_text(json.dumps(man))
