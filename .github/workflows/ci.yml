@@ -52,3 +52,23 @@ jobs:
           docker run --rm ebscore:ci bash -o pipefail -c
           'id -un; test "$(id -u)" != 0; ebscore --version; samtools --version | head -1;
           mawk -W version 2>&1 | head -1; ps -o rss= -p $$'
+      # Trivy 0.69.3 (the kumo-docker-scientific CI version) as a container; the vuln DB is cached in a volume for
+      # the three scans of this job. Gate = library packages, fixed vulns only, HIGH/CRITICAL. Accepted findings go
+      # into .trivyignore with a reason (plan 3b/D24).
+      - name: Trivy Dockerfile config scan (HIGH/CRITICAL)
+        run: |
+          docker run --rm -v "$PWD":/src:ro -w /src -v trivy-cache:/root/.cache/trivy aquasec/trivy:0.69.3 \
+            config --severity HIGH,CRITICAL --exit-code 1 Dockerfile
+      - name: Trivy vulnerability gate (library packages, fixed only, HIGH/CRITICAL)
+        run: |
+          ignore=()
+          if [ -f .trivyignore ]; then ignore=(--ignorefile /src/.trivyignore); fi
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD":/src:ro \
+            -v trivy-cache:/root/.cache/trivy aquasec/trivy:0.69.3 \
+            image --scanners vuln --pkg-types library --ignore-unfixed --severity HIGH,CRITICAL --exit-code 1 \
+            "${ignore[@]}" ebscore:ci
+      - name: Trivy report incl. OS packages (informational, never fails)
+        if: always()
+        run: |
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v trivy-cache:/root/.cache/trivy \
+            aquasec/trivy:0.69.3 image --scanners vuln --severity HIGH,CRITICAL --exit-code 0 ebscore:ci
