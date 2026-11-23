@@ -109,30 +109,44 @@ def add_lookup(df: pd.DataFrame) -> pd.DataFrame:
 
     SNV -> its Alt base at Start; insertion (Ref "-") -> I at Start; deletion (Alt "-") -> D at Start - 1, the anchor
     base where the pileup reports the deletion (legacy tumor2matrix.mawk logic).
+
+    A row with an empty Chr, or whose lookup position would be < 1 (a deletion at Start 1, a Start <= 0), has no
+    position either: no pileup or PONmatrix row can exist there, so EB is NA as before, and ``score`` and
+    ``pon-subset`` (whose ``positions.tsv`` only takes Chr + a position >= 1) treat it alike, as unscorable.
     """
     df = df.reset_index(drop=True).copy()
     pos, letter = [], []
-    for start, ref, alt in zip(df["Start"], df["Ref"], df["Alt"]):
+    n_type = n_where = 0
+    for chrom, start, ref, alt in zip(df["Chr"], df["Start"], df["Ref"], df["Alt"]):
         if pd.isna(start) or start == "":
+            n_type += 1  # VCF alleles that are MNV/complex/symbolic come with an empty Start
             pos.append(pd.NA)
             letter.append("")
             continue
         start = int(start)
         if ref == "-":
-            pos.append(start)
-            letter.append("I")
+            p, let = start, "I"
         elif alt == "-":
-            pos.append(start - 1)
-            letter.append("D")
+            p, let = start - 1, "D"
         elif len(ref) == 1 and len(alt) == 1 and alt.upper() in SNV_BASES:
-            pos.append(start)
-            letter.append(alt.upper())
+            p, let = start, alt.upper()
         else:
+            n_type += 1
             pos.append(pd.NA)
             letter.append("")
+            continue
+        if p < 1 or pd.isna(chrom) or str(chrom) == "":
+            n_where += 1
+            pos.append(pd.NA)
+            letter.append("")
+            continue
+        pos.append(p)
+        letter.append(let)
     df["_pos"] = pd.array(pos, dtype="Int64")
     df["_letter"] = letter
-    n_bad = int(df["_pos"].isna().sum())
-    if n_bad:
-        log.warning("%d variants are not SNV/insertion/deletion and get EB = NA", n_bad)
+    if n_type:
+        log.warning("%d variants are not SNV/insertion/deletion and get EB = NA", n_type)
+    if n_where:
+        log.warning("%d variants have no lookup position (empty Chr, or position < 1, e.g. a deletion at Start 1) "
+                    "and get EB = NA", n_where)
     return df

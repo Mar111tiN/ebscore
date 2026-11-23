@@ -16,6 +16,7 @@ from ebscore import __version__
 from ebscore.cli import main
 from ebscore.score import score_variants
 from ebscore.subset import SUBSET_SCHEMA, pon_subset
+from ebscore.variants import read_variants
 
 PAIR = LEGACY / "pair.cpile.tsv.gz"
 TSV, VCF = SYN / "variants.tsv", SYN / "variants.vcf"
@@ -165,6 +166,26 @@ def test_guard_refuses_positions_outside_the_subset(legacy_ponmatrix, split_vari
               "-o", tmp_path / "x.tsv")  # before any tumor lookup
 
 
+def test_guard_is_needed(legacy_ponmatrix, split_variants, tmp_path, monkeypatch):
+    # mutation check: with the guard switched off, b against the a-only subset runs and silently loses the PON data
+    # at b's 22 positions (23 rows) outside it (EB NA), where the full set gives EB; the rows inside stay exact
+    a, b = split_variants
+    sub = tmp_path / "a_only"
+    pon_subset(legacy_ponmatrix, sub, variants=[a])
+    full = score_variants(b, legacy_ponmatrix, pileup=PAIR, keep_matrix=True)
+    monkeypatch.setattr(score_mod, "check_subset_positions", lambda *args, **kw: None)
+    unguarded = score_variants(b, sub, pileup=PAIR, keep_matrix=True)
+    look = read_variants(b)
+    in_sub = set(listed(sub))
+    is_listed = pd.Series([(c, str(p)) in in_sub for c, p in zip(look["Chr"], look["_pos"])])
+    outside = look["_pos"].notna() & ~is_listed
+    assert outside.sum() == 23 and len(set(zip(look.loc[outside, "Chr"], look.loc[outside, "_pos"]))) == 22
+    # the full set has PON data for all but the pon_gap row there, and EB for 21 rows
+    assert full.loc[outside, "PON+"].notna().sum() == 22 and full.loc[outside, "EB"].notna().sum() == 21
+    assert unguarded.loc[outside, "PON+"].isna().all() and unguarded.loc[outside, "EB"].isna().all()
+    pd.testing.assert_frame_equal(full[~outside], unguarded[~outside], check_exact=True)
+
+
 def test_listed_position_without_a_source_row_is_fine(legacy_ponmatrix, tmp_path):
     sub = tmp_path / "sub"
     pon_subset(legacy_ponmatrix, sub, variants=[TSV])
@@ -229,6 +250,52 @@ def test_unscorable_rows_are_ignored_and_counted(legacy_ponmatrix, tmp_path, cap
     assert "55 variants, 51 positions to look up, 2 unscorable rows ignored" in caplog.text
     assert [(i["rows"], i["unscorable"], i["positions"]) for i in info["inputs"]] == [(55, 2, 51), (55, 2, 51)]
     assert info["n_positions"] == 51  # the MNVs have no position
+
+
+def test_rows_without_a_lookup_position(legacy_ponmatrix, tmp_path, caplog):
+    # a deletion at Start 1 looks up position 0, Start 0 / -3 and an empty Chr none: no pileup or matrix row can be
+    # there. score and pon-subset both treat them as unscorable (EB NA), so the subset's positions.tsv stays readable
+    # (it once listed chr7 0 and then refused every later score, also for files without such a row)
+    v = table(TSV)
+    row = v.iloc[0].to_dict()  # chr7 1020 G C
+    edge = pd.DataFrame([{**row, "Start": "1", "End": "1", "Ref": "A", "Alt": "-", "scenario": "del_at_1"},
+                         {**row, "Start": "0", "End": "0", "scenario": "snv_at_0"},
+                         {**row, "Start": "-3", "End": "-3", "Ref": "-", "Alt": "T", "scenario": "ins_at_neg"},
+                         {**row, "Chr": "", "scenario": "empty_chr"}])
+    edgy = write_table(pd.concat([edge.head(2), v, edge.tail(2)]), tmp_path / "edge.tsv")
+    run_dir, ref = tmp_path / "run", tmp_path / "ref"
+    with caplog.at_level(logging.INFO, logger="ebscore"):
+        info = pon_subset(legacy_ponmatrix, run_dir, variants=[edgy, TSV])
+    assert "59 variants, 51 positions to look up, 6 unscorable rows ignored" in caplog.text
+    pon_subset(legacy_ponmatrix, ref, variants=[TSV])
+    assert info["n_positions"] == 51 and listed(run_dir) == listed(ref)
+    for f in (edgy, TSV):  # every later use of the subset works, against the run subset and a per-pair one
+        full = score_cli(legacy_ponmatrix, f, tmp_path / f"{f.stem}.full.tsv")
+        assert score_cli(run_dir, f, tmp_path / f"{f.stem}.run.tsv") == full
+        pair = tmp_path / f"pair_{f.stem}"
+        pon_subset(run_dir, pair, variants=[f])
+        assert score_cli(pair, f, tmp_path / f"{f.stem}.pair.tsv") == full
+    out = table(tmp_path / "edge.full.tsv")
+    assert (out.loc[out["scenario"].isin(edge["scenario"]), ["PON+", "PON-", "EB", "Tumor", "AB"]] == "NA").all().all()
+
+
+def test_source_without_pon_list(legacy_ponmatrix, tmp_path, caplog):
+    src = tmp_path / "nolist"
+    shutil.copytree(legacy_ponmatrix, src)
+    (src / "PON_list.txt").unlink()
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    shutil.copyfile(legacy_ponmatrix / "PON_list.txt", sub / "PON_list.txt")  # stale, e.g. from an interrupted run
+    with caplog.at_level(logging.WARNING, logger="ebscore"):
+        pon_subset(src, sub, variants=[TSV])
+    assert "removing the stale" in caplog.text
+    assert files_of(sub) == ["matrix", "matrix/chr12.pon.gz", "matrix/chr7.pon.gz", "positions.tsv", "subset.json"]
+    for extra in ([], ["--exclude-index", "2"]):
+        full = score_cli(src, TSV, tmp_path / "full.tsv", *extra)
+        assert score_cli(sub, TSV, tmp_path / "sub.tsv", *extra) == full
+    for pm in (src, sub):  # exclusion by name needs PON_list.txt: refused alike (the stale list would have allowed it)
+        cli_fails("score", "--variants", TSV, "--ponmatrix", pm, "--pileup", PAIR, "-o", tmp_path / "x.tsv",
+                  "--exclude-sample", "N02")
 
 
 def test_positions_file_input(legacy_ponmatrix, tmp_path):
@@ -337,7 +404,7 @@ def test_subset_of_a_subset(legacy_ponmatrix, split_variants, tmp_path):
     a, b = split_variants
     run_dir, pair, direct = tmp_path / "run", tmp_path / "pair_a", tmp_path / "direct_a"
     run_info = pon_subset(legacy_ponmatrix, run_dir, variants=[a, b], threads=2)
-    info = pon_subset(run_dir, pair, variants=[a])  # the cheap per-pair step: reads only the run subset
+    info = pon_subset(run_dir, pair, variants=[a])  # the per-pair step: reads the run subset, not the full set
     pon_subset(legacy_ponmatrix, direct, variants=[a])
     for name in ("matrix/chr7.pon.gz", "matrix/chr12.pon.gz", "positions.tsv", "PON_list.txt"):
         assert (pair / name).read_bytes() == (direct / name).read_bytes(), name
@@ -382,6 +449,29 @@ def test_chromosome_without_a_matrix_file(legacy_ponmatrix, tmp_path, caplog):
     assert files_of(tmp_path / "x" / "matrix") == []
     full = score_cli(legacy_ponmatrix, only_x, tmp_path / "xf.tsv", "--allow-missing-chrom")
     assert score_cli(tmp_path / "x", only_x, tmp_path / "xs.tsv", "--allow-missing-chrom") == full
+
+
+def test_per_pair_step_with_only_missing_chromosomes(legacy_ponmatrix, tmp_path, caplog):
+    # the run subset is checked against the full set; a per-pair call from it is not, so one pair whose positions
+    # are all on chromosomes without a matrix file cannot fail the per-pair step (and EB) of the whole run
+    v = table(TSV)
+    only_x = write_table(v.head(4).assign(Chr="chrX"), tmp_path / "x.tsv")
+    run_dir, pair_x, pair_v = tmp_path / "run", tmp_path / "pair_x", tmp_path / "pair_v"
+    cli("pon-subset", "--ponmatrix", legacy_ponmatrix, "-o", run_dir, "--variants", TSV, "--variants", only_x)
+    with caplog.at_level(logging.WARNING, logger="ebscore"):
+        cli("pon-subset", "--ponmatrix", run_dir, "-o", pair_x, "--variants", only_x)
+    assert "score against this subset fails unless --allow-missing-chrom" in caplog.text
+    cli("pon-subset", "--ponmatrix", run_dir, "-o", pair_v, "--variants", TSV)
+    assert files_of(pair_x / "matrix") == [] and files_of(pair_v / "matrix") == ["chr12.pon.gz", "chr7.pon.gz"]
+    # that pair's score decides, exactly as against the full set
+    for pm in (legacy_ponmatrix, pair_x):
+        cli_fails("score", "--variants", only_x, "--ponmatrix", pm, "--pileup", PAIR, "-o", tmp_path / "x.tsv")
+    full = score_cli(legacy_ponmatrix, only_x, tmp_path / "xf.tsv", "--allow-missing-chrom")
+    assert score_cli(pair_x, only_x, tmp_path / "xs.tsv", "--allow-missing-chrom") == full
+    assert score_cli(pair_v, TSV, tmp_path / "vs.tsv") == score_cli(legacy_ponmatrix, TSV, tmp_path / "vf.tsv")
+    # a subset that lacks the positions still refuses them (the guard, not this check)
+    with pytest.raises(ValueError, match="requested positions outside this PONmatrix subset"):
+        pon_subset(pair_v, tmp_path / "bad", variants=[only_x])
 
 
 def test_plain_matrix_source_and_corrupt_sources(legacy_ponmatrix, tmp_path):

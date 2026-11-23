@@ -10,7 +10,7 @@ A subset folder::
 
     matrix/<chrom>.pon.gz   header + the source rows at the listed positions (only chromosomes that have positions
                             and a source file; header-only if no listed position has a row)
-    PON_list.txt            byte copy of the source's (if it has one)
+    PON_list.txt            byte copy of the source's (if it has one; if not, a stale one in the folder is removed)
     positions.tsv           Chr Pos (tab, no header): every listed position, chromosomes in order of first appearance
                             in the inputs, positions numeric; Pos is the lookup position of ``score`` (``_pos``: the
                             Start of an SNV/insertion, Start - 1 for a deletion)
@@ -149,7 +149,8 @@ def collect_positions(variants=(), positions=(), chroms=None) -> tuple[dict, lis
     appearance (variants files first, then positions files, each in the given order), and one record per input.
 
     Variant files go through the same reader and lookup as ``score`` (``read_variants``, ``restrict_chroms``,
-    ``lookup_positions``); unscorable rows (no ``_pos``: MNV, complex, symbolic) are left out and counted.
+    ``lookup_positions``); unscorable rows (no ``_pos``: MNV, complex, symbolic, or no valid position such as a
+    deletion at Start 1) are left out and counted, so every position is one ``read_positions`` accepts.
     """
     union: dict = {}
     inputs = []
@@ -228,8 +229,10 @@ def pon_subset(
 
     ``chroms`` restricts the positions as ``score --chrom`` does. Chromosomes are filtered in parallel (``threads``).
     Fails if ``outdir`` is the source or already has ``matrix/``, if the source is a subset that does not list every
-    requested position, or if no chromosome with positions has a source file (as ``score`` against the full set
-    would; ``allow_missing_chrom`` writes the subset anyway).
+    requested position, or if the source is a full set and no chromosome with positions has a file there (as ``score``
+    against the full set would; ``allow_missing_chrom`` writes the subset anyway). A subset source is not checked for
+    that (see the comment in the code), so one pair cannot fail the per-pair step of a whole run.
+    ``PON_list.txt`` is copied if the source has one; a stale one in ``outdir`` is removed if it has none.
     The matrix is written in a hidden staging folder and moved to ``<outdir>/matrix`` last, after ``PON_list.txt``,
     ``positions.tsv`` and ``subset.json``; an interrupted run leaves no ``matrix/``, so nothing can score against it.
     """
@@ -254,7 +257,11 @@ def pon_subset(
 
     sources = {c: find_gz(src / "matrix" / f"{c}.pon.gz") for c in union}
     no_file = [c for c, f in sources.items() if f is None]
-    if no_file and len(no_file) == len(union) and not allow_missing_chrom:
+    # Only a full set is checked: a subset has no file for a chromosome exactly when its full set had none, and the
+    # run-level call from the full set has already checked that. A per-pair call (source = the run subset) whose
+    # positions are all on such chromosomes writes its subset (no matrix files), and that pair's `score` decides
+    # (it fails without --allow-missing-chrom, as against the full set), instead of failing the run's other pairs.
+    if no_file and len(no_file) == len(union) and source_subset is None and not allow_missing_chrom:
         raise ValueError(
             f"{src}/matrix has no file for any chromosome with positions ({' '.join(no_file[:5])}"
             f"{' ...' if len(no_file) > 5 else ''}); wrong --ponmatrix? (--allow-missing-chrom writes it anyway)"
@@ -262,6 +269,9 @@ def pon_subset(
     for c in no_file:
         log.warning("no PONmatrix file for %s: its %d positions get no PON data (as with the full set)", c,
                     len(union[c]))
+    if no_file and len(no_file) == len(union) and source_subset is not None:
+        log.warning("no chromosome with positions has a matrix file in the source subset: score against this subset "
+                    "fails unless --allow-missing-chrom, as against the full set")
     todo = [c for c in union if sources[c] is not None]
     for c in todo:
         _check_matrix_header(sources[c])

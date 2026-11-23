@@ -82,7 +82,8 @@ def build_parser() -> argparse.ArgumentParser:
                         "position `score` looks up (deletions: the base before; repeatable)")
     p.add_argument("--chrom", action="append", help="only positions on these chromosomes (repeatable)")
     p.add_argument("--allow-missing-chrom", action="store_true",
-                   help="write the subset even when no chromosome with positions has a matrix file")
+                   help="write the subset even when no chromosome with positions has a matrix file in a full-set "
+                        "--ponmatrix (a subset source is not checked for this; score decides per pair)")
     _common(p)
 
     p = sub.add_parser("score", help="EB score of variants against the PONmatrix (fits on the fly)")

@@ -168,6 +168,22 @@ Port of `main` (HEAD `ef67010`) for kumo-variant-calling-nf. Values were checked
 - Port additions beyond the T2 spec: a subset can be the source of a smaller one (the design's run → per-pair step);
   `pon-subset` then refuses requested positions the source subset does not list, and `subset.json` nests the source's
   `subset.json` (`source.subset`). `subset.json` also records `inputs`, `chrom_filter` and per chromosome whether a
-  matrix file exists (`chroms.<c>.matrix`). `pon-subset` fails, like `score` against the full set, when no chromosome
-  with positions has a matrix file (`--allow-missing-chrom` writes it anyway); it also rejects a source matrix file
-  without the PONmatrix header or with rows of different sample counts.
+  matrix file exists (`chroms.<c>.matrix`). `pon-subset` fails, like `score` against the full set, when the source
+  is a full set and no chromosome with positions has a matrix file there (`--allow-missing-chrom` writes it anyway);
+  it also rejects a source matrix file without the PONmatrix header or with rows of different sample counts. If the
+  source has no `PON_list.txt`, a stale one in the output folder is removed (with a warning), so `--exclude-sample`
+  is refused against the subset as against its source.
+- Fixed after review:
+  - **Rows without a valid lookup position** (a deletion at Start 1, i.e. position 0; a Start ≤ 0; an empty Chr) are
+    now unscorable in `variants.add_lookup`, the code `score` and `pon-subset` share. Before, `pon-subset` wrote them to
+    `positions.tsv` (`chr7 0`), its own reader then rejected the file, and every later `score` against that subset,
+    and every per-pair `pon-subset` from it, failed (exit 2), also for variant files without such a row. `score`
+    output is unchanged (no pileup or PONmatrix row can exist there: EB NA, or 0 with `--missing zero`), but the
+    warning now says "no lookup position", and a table whose every Chr is empty gives EB NA instead of failing with "no
+    file for any variant chromosome".
+  - **The per-pair step no longer fails a whole run** because of one pair: a subset source is not checked for "no
+    chromosome with positions has a matrix file" (the run-level call from the full set already did; a subset lacks a
+    file exactly where its full set does). Such a pair's subset is written with a warning, and its `score` fails
+    unless `--allow-missing-chrom`, as against the full set.
+  - README: the cost of the per-pair step (N_pairs × the run subset, growing with the square of the run size; at 100
+    WES pairs with mostly private positions 6–12 times the full pass) and `-t` in the per-pair calls.

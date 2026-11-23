@@ -68,3 +68,19 @@ def test_lookup_keys():
     assert out["_pos"].tolist()[:3] == [10, 10, 10]
     assert out["_letter"].tolist() == ["G", "I", "D", ""]
     assert pd.isna(out["_pos"].iloc[3])
+
+
+def test_lookup_needs_chr_and_a_position_of_at_least_1(caplog):
+    # no pileup or PONmatrix row exists at position < 1 or without a chromosome: unscorable (EB NA), never a
+    # position that pon-subset would write to positions.tsv and read_positions reject
+    df = pd.DataFrame(
+        [("c", "1", "1", "A", "-"), ("c", "0", "0", "A", "G"), ("c", "-3", "-3", "-", "T"), ("", "10", "10", "A", "G"),
+         ("c", "2", "2", "A", "-"), ("c", "1", "1", "-", "T"), ("c", "1", "1", "A", "G"), ("c", "5", "6", "AT", "GC")],
+        columns=["Chr", "Start", "End", "Ref", "Alt"],
+    )
+    with caplog.at_level("WARNING", logger="ebscore"):
+        out = add_lookup(df)
+    assert out["_pos"].isna().tolist() == [True] * 4 + [False] * 3 + [True]
+    assert out["_pos"].tolist()[4:7] == [1, 1, 1] and out["_letter"].tolist() == [""] * 4 + ["D", "I", "G", ""]
+    assert "1 variants are not SNV/insertion/deletion" in caplog.text
+    assert "4 variants have no lookup position" in caplog.text
