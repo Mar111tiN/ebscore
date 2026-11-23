@@ -90,6 +90,20 @@ def read_variants(path) -> pd.DataFrame:
     return add_lookup(df)
 
 
+def restrict_chroms(df: pd.DataFrame, chroms=None) -> pd.DataFrame:
+    """The rows on ``chroms`` (index reset; all rows if ``chroms`` is empty): ``score``/``pon-subset --chrom``."""
+    if not chroms:
+        return df
+    return df[df["Chr"].isin(set(chroms))].reset_index(drop=True)
+
+
+def lookup_positions(df: pd.DataFrame) -> pd.DataFrame:
+    """The distinct ``(Chr, _pos)`` pairs of an :func:`add_lookup` table, in first-appearance order: exactly the
+    positions ``score`` looks up in the pileup and the PONmatrix, and those a ``pon-subset`` keeps. Unscorable rows
+    (``_pos`` NA) are left out."""
+    return df.loc[df["_pos"].notna(), ["Chr", "_pos"]].drop_duplicates()
+
+
 def add_lookup(df: pd.DataFrame) -> pd.DataFrame:
     """Add the pileup lookup columns ``_pos`` (int, NA if unsupported) and ``_letter`` (A/G/C/T/I/D).
 

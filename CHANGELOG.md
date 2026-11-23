@@ -6,8 +6,8 @@ Port of `main` (HEAD `ef67010`) for kumo-variant-calling-nf. Values were checked
 (py 3.9, pandas 1.5.2, scipy 1.9.3) on synthetic data (`tests/data/legacy/`).
 
 ### Structure
-- Installable package `src/ebscore/` with the console script `ebscore` (`pileup`, `pon-matrix`, `score`, `vcf2table`).
-  No config dict needed; every input is a path or option.
+- Installable package `src/ebscore/` with the console script `ebscore` (`pileup`, `pon-matrix`, `pon-subset`, `score`,
+  `vcf2table`). No config dict needed; every input is a path or option.
 - mawk tools are package data, start with `#!/usr/bin/env bash` and always run through `bash`. Under `#!/bin/sh` (dash
   on Debian/Ubuntu) the bash-only option parsing silently failed, so every option fell back to its default.
 - Current Python (≥ 3.10), pandas 2/3, numpy 2, scipy 1.18; unpinned `environment.yml`; Dockerfile with named
@@ -144,3 +144,30 @@ Port of `main` (HEAD `ef67010`) for kumo-variant-calling-nf. Values were checked
   read covers but no filter-passing tumor read does (`0=0<0=0` from the paired pileup, `NA` from the other two).
 - Python API: `paired_pileup()` is unchanged; `tumor_pileup()` is new, and both wrap `sample_pileup(bams, ...)`
   (`pileup_header(n)`, `TUMOR_HEADER`).
+
+### Run-level PONmatrix subset (plan T2, 2026-11-23)
+- New `ebscore pon-subset --ponmatrix FULL -o DIR (--variants FILE | --positions FILE) ... [--chrom C] [-t N]`
+  (owner decision on design N-Q8: option A for the PON build, plus T2). Every pipeline EB task staged the whole
+  PONmatrix (≈ 20 GB at 100 normals, ≈ 2 TB per 100 tumors); the subset is built once per run at the union of the
+  positions that `score` looks up for the run's variant files, and each EB task stages only that (MBs). The legacy
+  pipeline had no such step (`score` read the shared PON folder in place).
+- Output: `matrix/<chrom>.pon.gz` (header + the source rows at those positions, unchanged, via `filterpos`; only
+  chromosomes with positions and a source file), `PON_list.txt` (byte copy), `positions.tsv` (`Chr Pos`, chromosome
+  order of first appearance in the inputs, numeric positions), `subset.json` (schema `ebscore-ponmatrix-subset/1`,
+  version, source path + parsed `manifest.json`, counts, md5 of `positions.tsv`). Positions come from the same
+  reader and lookup code as `score` (`read_variants`, new `variants.restrict_chroms` / `variants.lookup_positions`,
+  which `score_variants` now uses too); unscorable rows are ignored and counted. Byte-identical output with any `-t`.
+  The matrix is moved into place last, so an interrupted run leaves no `matrix/`.
+- `score` against a subset gives the same output, byte for byte, as against the full set (PON±, EB; `Tumor`, `AB`
+  with `--keep-matrix`; the VCF annotation), also with `--exclude-sample`/`--exclude-index`.
+- **New guard in `score`:** a `--ponmatrix` with `subset.json` is a subset. `score` fails (exit 2) when its
+  `positions.tsv` does not match the md5 in `subset.json`, or when a scorable position of the input (after `--chrom`)
+  is not listed ("N scoring positions outside this PONmatrix subset (first: ...): rebuild it with these variants"),
+  instead of silently giving EB NA. A listed position without a source row still gives EB NA, as with the full set.
+  Full PONmatrix folders (no `subset.json`) behave as before.
+- Port additions beyond the T2 spec: a subset can be the source of a smaller one (the design's run → per-pair step);
+  `pon-subset` then refuses requested positions the source subset does not list, and `subset.json` nests the source's
+  `subset.json` (`source.subset`). `subset.json` also records `inputs`, `chrom_filter` and per chromosome whether a
+  matrix file exists (`chroms.<c>.matrix`). `pon-subset` fails, like `score` against the full set, when no chromosome
+  with positions has a matrix file (`--allow-missing-chrom` writes it anyway); it also rejects a source matrix file
+  without the PONmatrix header or with rows of different sample counts.

@@ -39,6 +39,15 @@ def cat_cmd(path) -> str:
     return f"gzip -dc {q(path)}" if str(path).endswith(".gz") else f"cat {q(path)}"
 
 
+def find_gz(path_base: Path):
+    """``x.gz`` if it exists, else ``x`` without .gz, else None (PONmatrix files may be plain)."""
+    path_base = Path(path_base)
+    if path_base.is_file():
+        return path_base
+    plain = path_base.with_suffix("") if path_base.suffix == ".gz" else None
+    return plain if plain and plain.is_file() else None
+
+
 def write_text_atomic(path, text: str) -> None:
     """Write a file via a temp file + rename, so that an existing symlink at ``path`` is replaced, not followed."""
     path = Path(path)

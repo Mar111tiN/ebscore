@@ -6,6 +6,8 @@ Replaces the legacy ``ebrun.run_ebscore`` / ``file2matrix.tumor2matrix`` / ``tum
 - the beta-binomial parameters are always fitted on the fly at the called positions (de-duplicated, parallel); the
   legacy on-the-fly path crashed (tumor_matrix.py:80), and the AB cache was removed (plan D32)
 - PON samples are excluded explicitly by name or index instead of by a file-name prefix convention
+- a PONmatrix subset (``ebscore pon-subset``, plan T2) scores exactly like its source; positions it does not list are
+  refused (``subset.check_subset_positions``) instead of silently getting EB NA
 """
 
 from __future__ import annotations
@@ -21,20 +23,15 @@ from .core import eb_score
 from .counts import ab_string, drop_samples, fit_key, n_samples, pon_string, split_cell, tumor_string
 from .fitting import fit_many
 from .pileup import MIN_BASEQ, MIN_MAPQ, mpileup_cmd
-from .tools import cat_cmd, cmd2df, first_line, run_parallel, tool
-from .variants import VCF_COLUMNS, read_variants
+from .subset import check_subset_positions
+from .tools import cat_cmd, cmd2df, find_gz, first_line, run_parallel, tool
+from .variants import VCF_COLUMNS, lookup_positions, read_variants, restrict_chroms
 
 log = logging.getLogger("ebscore")
 
 MISSING_POLICIES = ("na", "zero")
 
-
-def _find(path_base: Path):
-    """``x.gz`` if it exists, else ``x`` without .gz, else None."""
-    if path_base.is_file():
-        return path_base
-    plain = path_base.with_suffix("") if path_base.suffix == ".gz" else None
-    return plain if plain and plain.is_file() else None
+_find = find_gz
 
 
 def _rows_by_pos(df: pd.DataFrame) -> dict:
@@ -149,8 +146,9 @@ def score_variants(
     """Score a variant table/VCF (path) or a prepared DataFrame. Returns the input columns + PON+ PON- EB.
 
     The beta-binomial parameters are fitted on the fly for every scored position (identical PON vectors once).
-    ``EB`` is float64 (NaN = no data). Fails if ``<ponmatrix>/matrix`` is missing, or if no variant chromosome has a
-    matrix file (unless ``allow_missing_chrom``).
+    ``EB`` is float64 (NaN = no data). Fails if ``<ponmatrix>/matrix`` is missing, if no variant chromosome has a
+    matrix file (unless ``allow_missing_chrom``), or if ``ponmatrix`` is a subset (``subset.json``, plan T2) whose
+    ``positions.tsv`` lacks a position to score.
     """
     if missing not in MISSING_POLICIES:
         raise ValueError(f"missing must be one of {MISSING_POLICIES}")
@@ -162,12 +160,14 @@ def score_variants(
     if not (ponmatrix / "matrix").is_dir():
         raise ValueError(f"{ponmatrix} is not a PONmatrix folder (no matrix/ subfolder)")
     vdf = read_variants(variants) if not isinstance(variants, pd.DataFrame) else variants.copy()
-    if chroms:
-        vdf = vdf[vdf["Chr"].isin(set(chroms))].reset_index(drop=True)
-    ok = vdf["_pos"].notna()
-    positions = vdf.loc[ok, ["Chr", "_pos"]].drop_duplicates()
+    vdf = restrict_chroms(vdf, chroms)
+    positions = lookup_positions(vdf)
     var_chroms = list(dict.fromkeys(positions["Chr"]))
-    log.info("%d variants (%d scorable) on %d chromosomes", len(vdf), int(ok.sum()), len(var_chroms))
+    log.info("%d variants (%d scorable) on %d chromosomes", len(vdf), int(vdf["_pos"].notna().sum()), len(var_chroms))
+    subset = check_subset_positions(ponmatrix, positions)
+    if subset is not None:
+        log.info("PONmatrix subset of %s (%s positions); all %d positions to score are listed",
+                 (subset.get("source") or {}).get("path"), subset.get("n_positions"), len(positions))
     no_pon = [c for c in var_chroms if _find(ponmatrix / "matrix" / f"{c}.pon.gz") is None]
     if no_pon and len(no_pon) == len(var_chroms) and not allow_missing_chrom:
         raise ValueError(

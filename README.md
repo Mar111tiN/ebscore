@@ -43,6 +43,12 @@ ebscore score --variants calls.vcf.gz --ponmatrix PONmatrix/ --pileup pair.pileu
 #    Tumor-only: --pileup T.pileup.gz (the tumor column defaults to Read1 there) or --tumor-bam T.bam --fasta genome.fa;
 #    both give the same EB as the paired pileup of the same tumor.
 
+# 3a. Run-level PONmatrix subset (plan T2): the matrix rows at the positions of all variant files of a run, once;
+#     every score task then stages the subset (MBs) instead of the full matrix (~20 GB at 100 normals). Same EB.
+ebscore pon-subset --ponmatrix PONmatrix/ -o run_subset/ --variants p1.union.tsv --variants p2.union.tsv -t 8
+ebscore pon-subset --ponmatrix run_subset/ -o p1_subset/ --variants p1.union.tsv      # per pair, reads only the run subset
+ebscore score --variants p1.union.tsv --ponmatrix p1_subset/ --pileup p1.pileup.gz -o p1.EB.tsv ...
+
 # 4. PON-CNV from the same pileup: myCNV `mycnv sample --pileup pair.pileup.gz ...`.
 #    Tumor-only is PLANNED (myCNV plan M1, not in mycnv yet; flag names may change):
 #    `mycnv sample --tumor-only --pileup T.pileup.gz --snp-sites <kit common SNP sites> ...`
@@ -73,6 +79,10 @@ bcftools annotate -a ann.tsv.gz -h calls.EB.annot.tsv.hdr -c CHROM,POS,REF,ALT,I
 | | `--tmpdir DIR` | scratch for the per-chromosome parts (default: the output's folder) |
 | `pon-matrix` | `--bam-list`, `--fasta`, `--bed`, `-o/--outdir` | one BAM/CRAM per line (relative paths: against the list's folder, symlinks not followed) |
 | | `--chrom`, `--min-mapq`, `--min-baseq` | as for `pileup` |
+| `pon-subset` | `--ponmatrix`, `-o/--outdir` | source PONmatrix (full set or subset; read only) and a new folder (not the source, no `matrix/` yet) |
+| | `--variants FILE`, `--positions FILE` | repeatable, combinable, at least one: variant tables/VCFs as `score` reads them; `Chr Pos` files (tab, no header, the `positions.tsv` format) |
+| | `--chrom C` | only positions on these chromosomes (as `score --chrom`) |
+| | `--allow-missing-chrom` | write the subset even when no chromosome with positions has a matrix file |
 | `score` | `--variants`, `--ponmatrix`, `-o/--output` | inputs and the output TSV |
 | | `--pileup` or `--tumor-bam` + `--fasta` | tumor counts from an `ebscore pileup` file (paired or tumor-only) or straight from the BAM |
 | | `--tumor-column ReadN` | pileup column of the tumor (default `Read2` if the header has it, i.e. paired; else the last `Read` column, i.e. `Read1` of a tumor-only pileup) |
@@ -127,6 +137,62 @@ The same `matrix/` feeds the PON-CNV of myCNV. Scoring reads the folder only (te
 can be mounted read-only. A `--ponmatrix` without `matrix/`, or without a file for any variant chromosome, fails
 (exit 2).
 
+### Run-level PONmatrix subset (`pon-subset`)
+
+**Purpose.** `score` reads only the matrix rows at its variant positions, but a pipeline task has to stage the whole
+`matrix/` folder first: ≈ 6 GB at 28 normals, ≈ 20 GB at 100, once per pair (≈ 2 TB per 100 tumors). `pon-subset`
+reads the full matrix once and keeps the rows at the positions that will be scored, so each EB task stages a few MB.
+
+**What it writes** (`-o DIR`):
+
+```
+DIR/
+  matrix/<chrom>.pon.gz  header + the source rows at the listed positions, unchanged and in source order (filterpos);
+                         one file per chromosome that has positions and a source file (header-only if none matches)
+  PON_list.txt           byte copy of the source's (if it has one), so --exclude-sample works as before
+  positions.tsv          Chr Pos, tab, no header: the union of the positions, chromosomes in order of first appearance
+                         in the inputs (all --variants, then all --positions, as given), positions numeric
+  subset.json            schema ebscore-ponmatrix-subset/1, ebscore version, source (path as given, its parsed
+                         manifest.json or null, its subset.json if the source is a subset), inputs (path, rows,
+                         unscorable rows, positions), chrom_filter, n_positions, n_samples (from the Depth cells),
+                         chroms {chrom: positions, rows, matrix}, positions_md5 (of positions.tsv)
+```
+
+The positions are exactly the `(Chr, Pos)` pairs `score` looks up for the same files (the same reader and lookup
+code): the Start of an SNV or insertion, Start − 1 for a deletion (the anchor base of the pileup). Unscorable rows (MNV,
+complex, symbolic) have no position; they are counted in the log and in `inputs`. A `--positions` file uses the same
+`Pos`, so `--positions DIR/positions.tsv` rebuilds the same subset. Chromosomes are filtered in parallel (`-t`); the
+output is byte-identical with any `-t`. The matrix is written in a hidden staging folder and moved to `DIR/matrix`
+last, after the other files, so an interrupted run leaves no `matrix/` and nothing can score against it. Only
+`matrix/` and `PON_list.txt` are carried over: the subset is for `score`; myCNV needs the full set (`cov/ snp/ CNV/`).
+
+**Same EB.** Scoring against the subset gives the same output, byte for byte, as against the full set, also with
+`--exclude-sample`/`--exclude-index`, `--keep-matrix` (`Tumor`, `AB`) and `--vcf-annotation`: the PON rows and
+`PON_list.txt` are identical, so the fits are too. A listed position without a source row stays without one (EB NA, as
+with the full set); a chromosome with positions but no source file gets no file (a warning, as `score` gives). If no
+chromosome with positions has a source file, `pon-subset` fails as `score` against the full set would
+(`--allow-missing-chrom` writes it anyway).
+
+**The guard.** A folder with `subset.json` is a subset. `score` checks `positions.tsv` against its md5 in
+`subset.json`, then refuses to run (exit 2) if any scorable position of its input (after `--chrom`) is not listed:
+`N scoring positions outside this PONmatrix subset (first: chr12:5035 ...): rebuild it with these variants`. So a
+wiring error (the wrong pair's subset, a subset built before a VCF changed) fails instead of silently giving EB NA. A
+subset can be the source of a smaller one; the same check then refuses requested positions the source does not list.
+
+**In the pipeline** (`EBSCORE_PONSUBSET`, design §3, N-Q8 option A + T2): one task per run, after the last pair's
+caller VCFs exist and `EBSCORE_UNION` has written every union. It stages the full matrix once and runs
+`pon-subset --ponmatrix ponmatrix -o run --variants <union> ...` over all unions of the run, then, per union,
+`pon-subset --ponmatrix run -o pairs/<id> --variants <id>.union.tsv` (reads only the run subset). Each
+`EBSCORE_SCORE` task stages only `pairs/<id>/` and passes it as `--ponmatrix`; `run/subset.json` is published as
+provenance. Pass the unions in a fixed order (e.g. `collect(sort: true)`), so the run's `positions.tsv` and its md5 are
+reproducible; the matrix files do not depend on the order.
+
+**Cost.** One pass over the full matrix per run (≈ 20 GB staged and read once at 100 normals, CPU-bound on
+`gzip -dc` + mawk, parallel over chromosomes) plus the per-pair subsets, which read only the run subset (≈ 250 B per
+position at 100 normals, 10–30 MB per WES pair). The disk of that one task is about the full matrix. Scoring waits
+for the last pair's VCFs (one barrier); EB itself is minutes per pair, so the barrier costs little next to staging
+the full matrix per pair.
+
 ### The fit
 
 `score` fits the per-strand beta-binomial on the fly at the called positions (identical PON vectors once per run):
@@ -140,7 +206,7 @@ bit.
 ## Tests
 
 ```bash
-pytest -q          # mawk tools, core math, legacy parity, VCF conversion, scoring options, simulated BAMs
+pytest -q          # mawk tools, core math, legacy parity, VCF conversion, scoring options, simulated BAMs, subsets
 ```
 
 `tests/data/legacy/` holds outputs of the unmodified `main` code (py 3.9, pandas 1.5.2, scipy 1.9.3), made by

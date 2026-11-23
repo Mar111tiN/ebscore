@@ -1,4 +1,4 @@
-"""ebscore command line: pileup, pon-matrix, score, vcf2table."""
+"""ebscore command line: pileup, pon-matrix, pon-subset, score, vcf2table."""
 
 from __future__ import annotations
 
@@ -64,6 +64,27 @@ def build_parser() -> argparse.ArgumentParser:
     _pileup_opts(p)
     _common(p)
 
+    p = sub.add_parser(
+        "pon-subset",
+        help="PONmatrix subset at the positions of given variants (run level, plan T2); scores like the full set",
+        description="Keep the PONmatrix rows at the union of the positions that `score` looks up for the given "
+                    "variant tables/VCFs (and positions files): one pass over the full matrix, then every score task "
+                    "stages only the subset. Writes <outdir>/matrix/<chrom>.pon.gz, PON_list.txt (byte copy), "
+                    "positions.tsv and subset.json. `score` against the subset gives the same output as against the "
+                    "full set and refuses positions the subset does not list.",
+    )
+    p.add_argument("--ponmatrix", required=True, help="source PONmatrix folder (a full set or a subset); read only")
+    p.add_argument("-o", "--outdir", required=True, help="new subset folder (must not be the source or have matrix/)")
+    p.add_argument("--variants", action="append", default=[],
+                   help="variant table or VCF, read as `score` reads it (repeatable)")
+    p.add_argument("--positions", action="append", default=[],
+                   help="positions file: Chr Pos, tab-separated, no header; Pos as in positions.tsv, i.e. the "
+                        "position `score` looks up (deletions: the base before; repeatable)")
+    p.add_argument("--chrom", action="append", help="only positions on these chromosomes (repeatable)")
+    p.add_argument("--allow-missing-chrom", action="store_true",
+                   help="write the subset even when no chromosome with positions has a matrix file")
+    _common(p)
+
     p = sub.add_parser("score", help="EB score of variants against the PONmatrix (fits on the fly)")
     p.add_argument("--variants", required=True, help="variant table (Chr Start End Ref Alt, ANNOVAR coords) or VCF")
     p.add_argument("--ponmatrix", required=True, help="PONmatrix folder (matrix/, PON_list.txt); read only")
@@ -120,6 +141,13 @@ def main(argv=None) -> int:
             from .pileup import pon_matrix
 
             pon_matrix(args.bam_list, args.fasta, args.bed, args.outdir, args.chrom, args.min_mapq, args.min_baseq, args.threads)
+        elif args.command == "pon-subset":
+            from .subset import pon_subset
+
+            if not args.variants and not args.positions:
+                raise ValueError("pon-subset needs at least one --variants or --positions file")
+            pon_subset(args.ponmatrix, args.outdir, variants=args.variants, positions=args.positions,
+                       chroms=args.chrom, threads=args.threads, allow_missing_chrom=args.allow_missing_chrom)
         elif args.command == "score":
             from .score import score_variants, write_vcf_annotation
 
