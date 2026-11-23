@@ -124,3 +124,20 @@ Port of `main` (HEAD `ef67010`) for kumo-variant-calling-nf. Values were checked
 - Python API: `EB` is float64 (NaN = no data) instead of an object column with `pd.NA`; VCF `Start`/`End`/`vcf_pos`
   are `Int64`.
 - The synthetic test VCF writes the multi-allelic sites as one record with two ALTs (and declares its INFO field).
+
+### Tumor-only pileup (plan T1, 2026-11-23)
+- `ebscore pileup` without `--normal` writes a one-sample pileup, `samtools mpileup TUMOR | cleanpileup -d`, with the
+  header `Chr Start Ref Depth1 Read1` (tumor = sample 1). It is for tumor-only PON-CNV (myCNV plan M1) and can also
+  feed `score --pileup`. The legacy pipeline had no tumor-only path (the pileup was a side output of the paired
+  varscan rule, `varscan.snk:24`). With `--normal` nothing changes (normal = sample 1, tumor = 2). Flags, BED,
+  `--chrom`, `-t`/splitting, `--tmpdir` and the always-written header are shared; the chromosomes are planned on the
+  tumor's header. An empty `--normal ''` fails (exit 2) instead of silently giving a tumor-only file.
+- Rows: samtools prints a position when a read of any input overlaps it, so the tumor-only file equals the paired
+  file's `Depth2 Read2` wherever a tumor read overlaps, and lacks the positions only normal reads cover (tumor `0 *`
+  in the paired file). Tumor rows with depth 0 (`0 *`, all bases below `-Q`) occur in both.
+- `score --pileup` already took the last `Read` column when there is no `Read2`, so a tumor-only pileup is scored on
+  `Read1` by default; the help texts now say so. EB (and PON±, AB) are identical via the tumor-only pileup, the
+  paired pileup and `--tumor-bam`; only `--keep-matrix`'s `Tumor` differs where only the normal covers a variant
+  (`0=0<0=0` from the paired pileup, `NA` from the other two).
+- Python API: `paired_pileup()` is unchanged; `tumor_pileup()` is new, and both wrap `sample_pileup(bams, ...)`
+  (`pileup_header(n)`, `TUMOR_HEADER`).

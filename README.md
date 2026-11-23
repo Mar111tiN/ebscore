@@ -30,13 +30,21 @@ every shell command, `--quiet` keeps warnings and errors only. Repeated `--chrom
 ebscore pon-matrix --bam-list PON_list.txt --fasta genome.fa --bed kit.padded.bed -o PONmatrix/ -t 8
 
 # 2. Paired pileup per tumor/normal pair (normal first). Shared by EB and PON-CNV (myCNV).
+#    Chr Start Ref Depth1 Read1 Depth2 Read2 (normal = 1, tumor = 2)
 ebscore pileup --normal N.bam --tumor T.bam --fasta genome.fa --bed kit.padded.bed -o pair.pileup.gz -t 4
+#    Tumor-only sample (plan T1): leave out --normal -> Chr Start Ref Depth1 Read1 (tumor = 1)
+ebscore pileup --tumor T.bam --fasta genome.fa --bed kit.padded.bed -o T.pileup.gz -t 4
 
 # 3. EB per variant (table in ANNOVAR coordinates, or a VCF; left-align indels first: bcftools norm -f genome.fa).
 ebscore score --variants calls.vcf.gz --ponmatrix PONmatrix/ --pileup pair.pileup.gz -o calls.EB.tsv \
     --vcf-annotation calls.EB.annot.tsv --exclude-sample <matched normal, if it is in the PON> -t 4
 #    or straight from the tumor BAM: --tumor-bam T.bam --fasta genome.fa
 #    PON_list.txt and matrix disagree in size (legacy HAEv7 PON: 26 vs 28)? exclude by column: --exclude-index 7
+#    Tumor-only: --pileup T.pileup.gz (the tumor column defaults to Read1 there) or --tumor-bam T.bam --fasta genome.fa;
+#    both give the same EB as the paired pileup of the same tumor.
+
+# 4. PON-CNV from the same pileup: myCNV `mycnv sample --pileup pair.pileup.gz ...`; tumor-only (myCNV plan M1):
+#    `mycnv sample --tumor-only --pileup T.pileup.gz --snp-sites <kit common SNP sites> ...`
 
 # VCF -> ANNOVAR-coordinate table (with the original VCF coordinates as vcf_* columns)
 ebscore vcf2table --vcf calls.vcf.gz -o calls.tsv
@@ -57,15 +65,16 @@ bcftools annotate -a ann.tsv.gz -h calls.EB.annot.tsv.hdr -c CHROM,POS,REF,ALT,I
 | Command | Option | Meaning |
 |---|---|---|
 | all | `-t/--threads N`, `-v/--verbose`, `--quiet` | parallelism (not `vcf2table`); debug logging with shell commands; warnings only |
-| `pileup` | `--normal`, `--tumor`, `--fasta`, `--bed`, `-o/--output` | inputs (normal = sample 1) and the `.pileup.gz` |
+| `pileup` | `--normal`, `--tumor`, `--fasta`, `--bed`, `-o/--output` | inputs (normal = sample 1, tumor = sample 2) and the `.pileup.gz` |
+| | no `--normal` | tumor-only pileup: `Chr Start Ref Depth1 Read1`, tumor = sample 1 (plan T1) |
 | | `--chrom C` | only these chromosomes (repeatable; default: whole BED) |
 | | `--min-mapq`, `--min-baseq` | samtools `-q`/`-Q` (20/25) |
 | | `--tmpdir DIR` | scratch for the per-chromosome parts (default: the output's folder) |
 | `pon-matrix` | `--bam-list`, `--fasta`, `--bed`, `-o/--outdir` | one BAM/CRAM per line (relative paths: against the list's folder, symlinks not followed) |
 | | `--chrom`, `--min-mapq`, `--min-baseq` | as for `pileup` |
 | `score` | `--variants`, `--ponmatrix`, `-o/--output` | inputs and the output TSV |
-| | `--pileup` or `--tumor-bam` + `--fasta` | tumor counts from the paired pileup or straight from the BAM |
-| | `--tumor-column ReadN` | pileup column of the tumor (default `Read2`, else the last `Read` column) |
+| | `--pileup` or `--tumor-bam` + `--fasta` | tumor counts from an `ebscore pileup` file (paired or tumor-only) or straight from the BAM |
+| | `--tumor-column ReadN` | pileup column of the tumor (default `Read2` if the header has it, i.e. paired; else the last `Read` column, i.e. `Read1` of a tumor-only pileup) |
 | | `--exclude-sample NAME`, `--exclude-index N` | drop PON samples (matched normal) by list entry/file name, or by 1-based column |
 | | `--penalty`, `--fisher`, `--missing` | see the next table |
 | | `--chrom C` | only variants on these chromosomes |
@@ -93,7 +102,14 @@ Chromosomes are those of the BED (plain or gzipped, tab- or blank-delimited), or
 has; missing ones are skipped with a warning, and the run fails if none is left. Rows come in **BAM header order**
 with any `-t` (myCNV's `filterBed.mawk` walks the pileup in this order). Every output has its header line, also
 when nothing is covered. The threaded pileup is a multi-member gzip (read it with `gzip -dc`/`zcat`, Python or
-pandas); its scratch parts go next to the output unless `--tmpdir` is set.
+pandas); its scratch parts go next to the output unless `--tmpdir` is set. The tumor-only pileup plans its
+chromosomes on the tumor's header alone.
+
+Which positions are rows: samtools prints a BED position when at least one read of any input BAM passes the read
+filters (`-q`, `--ff`) and overlaps it; the depth column counts only the bases that pass `-Q` (after BAQ), so a row
+can read `0 *`. Hence the tumor-only pileup equals the paired pileup's tumor columns (`Depth2 Read2`) at every
+position that a tumor read overlaps, and it lacks the positions that only normal reads overlap (there the paired
+file has tumor `0 *`). EB is the same either way: no tumor depth gives `NA` (`--missing`).
 
 ### PONmatrix folder
 

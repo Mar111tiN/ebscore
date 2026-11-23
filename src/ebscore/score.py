@@ -80,7 +80,11 @@ def resolve_exclusions(pon_list: list[str], n_pon: int, names=(), indices=()) ->
 
 
 def tumor_counts_from_pileup(pileup, positions_file, tumor_column=None) -> pd.DataFrame:
-    """pile2count rows (one sample) at the given positions from a cleanpileup file (paired ``-d`` or not)."""
+    """pile2count rows (one sample) at the given positions from a cleanpileup file (``-d`` or not).
+
+    Default tumor column: ``Read2`` if the header has it (paired pileup, normal = ``Read1``), else the last ``Read``
+    column, i.e. ``Read1`` of a tumor-only pileup (``ebscore pileup`` without ``--normal``).
+    """
     line = first_line(pileup)
     if not line:
         raise ValueError(f"{pileup}: empty file, not even the cleanpileup header (make it with `ebscore pileup`)")

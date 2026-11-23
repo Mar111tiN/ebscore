@@ -1,14 +1,20 @@
-"""samtools mpileup front ends: the paired normal/tumor pileup and the PONmatrix.
+"""samtools mpileup front ends: the sample pileup (paired normal/tumor, or tumor only) and the PONmatrix.
 
 Both use the legacy flag set: ``samtools mpileup -f <fasta> -q <min_mapq=20> -Q <min_baseq=25> -l <bed>`` (samtools
 defaults otherwise: BAQ on, anomalous pairs skipped, overlap detection on, ``--ff UNMAP,SECONDARY,QCFAIL,DUP``,
 max depth 8000 per file). The bundle FASTA with ``-r <chrom>`` replaces the legacy per-chromosome split FASTAs.
 
+Sample pileups (``cleanpileup -d``): paired = ``Chr Start Ref Depth1 Read1 Depth2 Read2`` (normal = sample 1, tumor =
+sample 2); tumor only (plan T1) = ``Chr Start Ref Depth1 Read1`` (tumor = sample 1). samtools prints a position when
+at least one read of any input passes the read filters (``-q``, ``--ff``) and overlaps it; the depth column counts
+only the bases that pass ``-Q`` (after BAQ), so ``0 *`` rows occur. The tumor-only rows are therefore the paired
+file's tumor columns minus the positions that only normal reads overlap (there the paired file has tumor ``0 *``).
+
 Chromosomes: the BED's chromosomes (or the requested ``chroms``, de-duplicated) that every BAM header has, in the
 order of the (first) BAM header. Chromosomes missing from a BAM header are skipped with a warning; if none is left,
 the run fails (e.g. a chr1 vs 1 naming mismatch). The output order is therefore the same with any thread count.
 
-Splitting (plan D16): the paired pileup runs as one samtools process over the whole BED unless ``chroms`` is given
+Splitting (plan D16): a sample pileup runs as one samtools process over the whole BED unless ``chroms`` is given
 or ``threads > 1`` (then one samtools process per chromosome, gzipped parts concatenated in BAM header order). The
 PONmatrix is always written per chromosome (``matrix/<chrom>.pon.gz``) and builds all BED chromosomes by default.
 Every output has its header line, also when no position is covered.
@@ -31,8 +37,14 @@ log = logging.getLogger("ebscore")
 
 MIN_MAPQ = 20
 MIN_BASEQ = 25
+TUMOR_HEADER = "Chr\tStart\tRef\tDepth1\tRead1"
 PAIRED_HEADER = "Chr\tStart\tRef\tDepth1\tRead1\tDepth2\tRead2"
 MATRIX_HEADER = "\t".join(MATRIX_COLUMNS)
+
+
+def pileup_header(n_samples: int) -> str:
+    """``cleanpileup -d`` header for ``n_samples`` inputs: ``Chr Start Ref Depth1 Read1 ... DepthN ReadN``."""
+    return "\t".join(["Chr", "Start", "Ref", *(f"{c}{i}" for i in range(1, n_samples + 1) for c in ("Depth", "Read"))])
 
 
 def mpileup_cmd(bams, fasta, bed, chrom=None, min_mapq=MIN_MAPQ, min_baseq=MIN_BASEQ, bam_list=None) -> str:
@@ -93,6 +105,45 @@ def _write_parts(make_cmd, chroms, out: Path, header: str, threads: int, tmpdir)
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def sample_pileup(
+    bams,
+    fasta,
+    bed,
+    out,
+    chroms=None,
+    min_mapq=MIN_MAPQ,
+    min_baseq=MIN_BASEQ,
+    threads=1,
+    tmpdir=None,
+    label="pileup",
+) -> Path:
+    """``samtools mpileup BAM1 [BAM2 ...] | cleanpileup -d | gzip`` -> ``Chr Start Ref Depth1 Read1 [Depth2 ...]``.
+
+    Sample i of the output is ``bams[i-1]``. Chromosomes are planned on all ``bams`` (see the module docstring); rows
+    are in BAM header order; the header line is always written. Use :func:`paired_pileup` or :func:`tumor_pileup`.
+    """
+    bams = list(bams)
+    if not bams:
+        raise ValueError("sample_pileup needs at least one BAM/CRAM")
+    out = Path(out)
+    ensure_dir(out.parent)
+    chroms = unique(chroms)
+    planned = plan_chroms(bed, bams, chroms, threads)
+    header = pileup_header(len(bams))
+
+    def make_cmd(chrom):
+        return f"{mpileup_cmd(bams, fasta, bed, chrom, min_mapq, min_baseq)} | {tool('cleanpileup', '-d')}"
+
+    if threads > 1 or chroms:
+        log.info("%s over %d chromosomes with %d threads", label, len(planned), threads)
+        _write_parts(make_cmd, planned, out, header, threads, tmpdir)
+    else:
+        log.info("%s over the whole BED (%d chromosomes)", label, len(planned))
+        _write_parts(make_cmd, [None], out, header, 1, tmpdir)
+    _check_rows(out)
+    return out
+
+
 def paired_pileup(
     normal,
     tumor,
@@ -110,22 +161,30 @@ def paired_pileup(
     Normal = sample 1, tumor = sample 2 (legacy order, varscan.snk:24). EB and PON-CNV both read this file. Rows are
     in BAM header order; the header line is always written.
     """
-    out = Path(out)
-    ensure_dir(out.parent)
-    chroms = unique(chroms)
-    planned = plan_chroms(bed, [normal, tumor], chroms, threads)
+    return sample_pileup([normal, tumor], fasta, bed, out, chroms, min_mapq, min_baseq, threads, tmpdir,
+                         label="paired pileup")
 
-    def make_cmd(chrom):
-        return f"{mpileup_cmd([normal, tumor], fasta, bed, chrom, min_mapq, min_baseq)} | {tool('cleanpileup', '-d')}"
 
-    if threads > 1 or chroms:
-        log.info("paired pileup over %d chromosomes with %d threads", len(planned), threads)
-        _write_parts(make_cmd, planned, out, PAIRED_HEADER, threads, tmpdir)
-    else:
-        log.info("paired pileup over the whole BED (%d chromosomes)", len(planned))
-        _write_parts(make_cmd, [None], out, PAIRED_HEADER, 1, tmpdir)
-    _check_rows(out)
-    return out
+def tumor_pileup(
+    tumor,
+    fasta,
+    bed,
+    out,
+    chroms=None,
+    min_mapq=MIN_MAPQ,
+    min_baseq=MIN_BASEQ,
+    threads=1,
+    tmpdir=None,
+) -> Path:
+    """Tumor-only pileup (plan T1): ``samtools mpileup TUMOR | cleanpileup -d`` -> ``Chr Start Ref Depth1 Read1`` (gz).
+
+    Tumor = sample 1. Same flags, BED, chromosome plan (on the tumor's header) and splitting as
+    :func:`paired_pileup`. Its rows equal the paired file's tumor columns (``Depth2 Read2``) at every position that a
+    tumor read overlaps; positions only the normal covers are absent. ``ebscore score --pileup`` takes ``Read1`` from
+    it by default, and myCNV's tumor-only ``sample`` reads it.
+    """
+    return sample_pileup([tumor], fasta, bed, out, chroms, min_mapq, min_baseq, threads, tmpdir,
+                         label="tumor-only pileup")
 
 
 def read_bam_list(bam_list) -> tuple[list[str], list[str]]:

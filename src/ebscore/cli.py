@@ -35,9 +35,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"ebscore {__version__}")
     sub = parser.add_subparsers(dest="command", required=True, metavar="COMMAND")
 
-    p = sub.add_parser("pileup", help="paired normal/tumor pileup (cleanpileup -d), shared by EB and PON-CNV")
-    p.add_argument("--normal", required=True, help="normal BAM/CRAM (sample 1)")
-    p.add_argument("--tumor", required=True, help="tumor BAM/CRAM (sample 2)")
+    p = sub.add_parser(
+        "pileup",
+        help="sample pileup (cleanpileup -d), shared by EB and PON-CNV: paired normal/tumor, or tumor only",
+        description="samtools mpileup | cleanpileup -d | gzip. With --normal: Chr Start Ref Depth1 Read1 Depth2 Read2 "
+                    "(normal = sample 1, tumor = sample 2). Without --normal (tumor-only): Chr Start Ref Depth1 Read1 "
+                    "(tumor = sample 1); it holds the positions that a tumor read overlaps.",
+    )
+    p.add_argument("--normal", help="normal BAM/CRAM (sample 1: Depth1 Read1); omit for a tumor-only pileup")
+    p.add_argument("--tumor", required=True,
+                   help="tumor BAM/CRAM (sample 2: Depth2 Read2; without --normal sample 1: Depth1 Read1)")
     p.add_argument("--fasta", required=True, help="reference FASTA (+ .fai)")
     p.add_argument("--bed", required=True, help=BED_HELP)
     p.add_argument("-o", "--output", required=True, help="output .pileup.gz")
@@ -59,9 +66,11 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--variants", required=True, help="variant table (Chr Start End Ref Alt, ANNOVAR coords) or VCF")
     p.add_argument("--ponmatrix", required=True, help="PONmatrix folder (matrix/, PON_list.txt); read only")
     src = p.add_mutually_exclusive_group(required=True)
-    src.add_argument("--pileup", help="cleanpileup file, e.g. from `ebscore pileup` (tumor = Read2)")
+    src.add_argument("--pileup", help="cleanpileup file from `ebscore pileup`: paired (tumor = Read2) or tumor-only "
+                     "(tumor = Read1); the default column follows from the header, see --tumor-column")
     src.add_argument("--tumor-bam", help="tumor BAM/CRAM; pileup at the variant positions (needs --fasta)")
-    p.add_argument("--tumor-column", help="pileup read column of the tumor (default Read2, else the last Read column)")
+    p.add_argument("--tumor-column", help="pileup read column of the tumor (default: Read2 if the header has it, "
+                   "i.e. a paired pileup; else the last Read column, i.e. Read1 of a tumor-only pileup)")
     p.add_argument("--fasta", help="reference FASTA for --tumor-bam")
     p.add_argument("-o", "--output", required=True, help="output TSV: input columns + PON+ PON- EB")
     p.add_argument("--vcf-annotation", help="also write #CHROM POS REF ALT EB (VCF or vcf2table input) + <file>.hdr "
@@ -95,12 +104,16 @@ def main(argv=None) -> int:
     setup_logging(args.verbose, args.quiet)
     try:
         if args.command == "pileup":
-            from .pileup import paired_pileup
+            from . import pileup
 
-            paired_pileup(
-                args.normal, args.tumor, args.fasta, args.bed, args.output, args.chrom,
-                args.min_mapq, args.min_baseq, args.threads, args.tmpdir,
-            )
+            opts = (args.fasta, args.bed, args.output, args.chrom, args.min_mapq, args.min_baseq, args.threads,
+                    args.tmpdir)
+            if args.normal is None:
+                pileup.tumor_pileup(args.tumor, *opts)
+            elif not args.normal.strip():
+                raise ValueError("--normal is empty; omit it for a tumor-only pileup")
+            else:
+                pileup.paired_pileup(args.normal, args.tumor, *opts)
         elif args.command == "pon-matrix":
             from .pileup import pon_matrix
 
