@@ -43,7 +43,8 @@ ebscore score --variants calls.vcf.gz --ponmatrix PONmatrix/ --pileup pair.pileu
 #    Tumor-only: --pileup T.pileup.gz (the tumor column defaults to Read1 there) or --tumor-bam T.bam --fasta genome.fa;
 #    both give the same EB as the paired pileup of the same tumor.
 
-# 4. PON-CNV from the same pileup: myCNV `mycnv sample --pileup pair.pileup.gz ...`; tumor-only (myCNV plan M1):
+# 4. PON-CNV from the same pileup: myCNV `mycnv sample --pileup pair.pileup.gz ...`.
+#    Tumor-only is PLANNED (myCNV plan M1, not in mycnv yet; flag names may change):
 #    `mycnv sample --tumor-only --pileup T.pileup.gz --snp-sites <kit common SNP sites> ...`
 
 # VCF -> ANNOVAR-coordinate table (with the original VCF coordinates as vcf_* columns)
@@ -106,10 +107,13 @@ pandas); its scratch parts go next to the output unless `--tmpdir` is set. The t
 chromosomes on the tumor's header alone.
 
 Which positions are rows: samtools prints a BED position when at least one read of any input BAM passes the read
-filters (`-q`, `--ff`) and overlaps it; the depth column counts only the bases that pass `-Q` (after BAQ), so a row
-can read `0 *`. Hence the tumor-only pileup equals the paired pileup's tumor columns (`Depth2 Read2`) at every
-position that a tumor read overlaps, and it lacks the positions that only normal reads overlap (there the paired
-file has tumor `0 *`). EB is the same either way: no tumor depth gives `NA` (`--missing`).
+filters (`-q`, `--ff`, anomalous pairs skipped) and overlaps it; the depth column counts only the bases that pass `-Q`
+(after BAQ), so a row can read `0 *`. Reads that fail a read filter count for nothing, not even for the row. Hence the
+tumor-only pileup has a row exactly where a filter-passing tumor read overlaps, and there it equals the paired
+pileup's tumor columns (`Depth2 Read2`, `0 *` included). The paired-only rows are the positions that no
+filter-passing tumor read overlaps but a filter-passing normal read does; the paired file has tumor `0 *` there. They
+are the normal-only positions, and also those where every tumor read fails a read filter (e.g. MAPQ < 20, duplicates,
+anomalous pairs). EB is the same either way: no tumor depth gives `NA` (`--missing`).
 
 ### PONmatrix folder
 

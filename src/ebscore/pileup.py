@@ -6,9 +6,12 @@ max depth 8000 per file). The bundle FASTA with ``-r <chrom>`` replaces the lega
 
 Sample pileups (``cleanpileup -d``): paired = ``Chr Start Ref Depth1 Read1 Depth2 Read2`` (normal = sample 1, tumor =
 sample 2); tumor only (plan T1) = ``Chr Start Ref Depth1 Read1`` (tumor = sample 1). samtools prints a position when
-at least one read of any input passes the read filters (``-q``, ``--ff``) and overlaps it; the depth column counts
-only the bases that pass ``-Q`` (after BAQ), so ``0 *`` rows occur. The tumor-only rows are therefore the paired
-file's tumor columns minus the positions that only normal reads overlap (there the paired file has tumor ``0 *``).
+at least one read of any input passes the read filters (``-q``, ``--ff``, anomalous pairs skipped) and overlaps it;
+the depth column counts only the bases that pass ``-Q`` (after BAQ), so ``0 *`` rows occur. A read that fails a read
+filter counts for nothing, not even for the row. The tumor-only file therefore has a row exactly where a
+filter-passing tumor read overlaps, equal to the paired file's tumor columns there. The paired-only rows (tumor
+``0 *``) are the positions that no filter-passing tumor read overlaps: normal-only positions, and positions where
+every tumor read fails a read filter (e.g. MAPQ < ``-q``, duplicates, anomalous pairs).
 
 Chromosomes: the BED's chromosomes (or the requested ``chroms``, de-duplicated) that every BAM header has, in the
 order of the (first) BAM header. Chromosomes missing from a BAM header are skipped with a warning; if none is left,
@@ -179,9 +182,11 @@ def tumor_pileup(
     """Tumor-only pileup (plan T1): ``samtools mpileup TUMOR | cleanpileup -d`` -> ``Chr Start Ref Depth1 Read1`` (gz).
 
     Tumor = sample 1. Same flags, BED, chromosome plan (on the tumor's header) and splitting as
-    :func:`paired_pileup`. Its rows equal the paired file's tumor columns (``Depth2 Read2``) at every position that a
-    tumor read overlaps; positions only the normal covers are absent. ``ebscore score --pileup`` takes ``Read1`` from
-    it by default, and myCNV's tumor-only ``sample`` reads it.
+    :func:`paired_pileup`. It has a row exactly where a tumor read that passes the read filters (``-q``, ``--ff``,
+    anomalous pairs) overlaps, equal to the paired file's tumor columns (``Depth2 Read2``) there. The paired file's
+    other rows (tumor ``0 *``) are absent: positions that only filter-passing normal reads overlap, including those
+    where every tumor read fails a read filter. ``ebscore score --pileup`` takes ``Read1`` from it by default;
+    myCNV's planned tumor-only ``sample`` (plan M1) is to read it.
     """
     return sample_pileup([tumor], fasta, bed, out, chroms, min_mapq, min_baseq, threads, tmpdir,
                          label="tumor-only pileup")

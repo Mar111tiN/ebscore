@@ -127,17 +127,20 @@ Port of `main` (HEAD `ef67010`) for kumo-variant-calling-nf. Values were checked
 
 ### Tumor-only pileup (plan T1, 2026-11-23)
 - `ebscore pileup` without `--normal` writes a one-sample pileup, `samtools mpileup TUMOR | cleanpileup -d`, with the
-  header `Chr Start Ref Depth1 Read1` (tumor = sample 1). It is for tumor-only PON-CNV (myCNV plan M1) and can also
-  feed `score --pileup`. The legacy pipeline had no tumor-only path (the pileup was a side output of the paired
-  varscan rule, `varscan.snk:24`). With `--normal` nothing changes (normal = sample 1, tumor = 2). Flags, BED,
-  `--chrom`, `-t`/splitting, `--tmpdir` and the always-written header are shared; the chromosomes are planned on the
-  tumor's header. An empty `--normal ''` fails (exit 2) instead of silently giving a tumor-only file.
-- Rows: samtools prints a position when a read of any input overlaps it, so the tumor-only file equals the paired
-  file's `Depth2 Read2` wherever a tumor read overlaps, and lacks the positions only normal reads cover (tumor `0 *`
-  in the paired file). Tumor rows with depth 0 (`0 *`, all bases below `-Q`) occur in both.
+  header `Chr Start Ref Depth1 Read1` (tumor = sample 1). It is for tumor-only PON-CNV (myCNV plan M1, still to
+  come) and can also feed `score --pileup`. The legacy pipeline had no tumor-only path (the pileup was a side output
+  of the paired varscan rule, `varscan.snk:24`). With `--normal` nothing changes (normal = sample 1, tumor = 2).
+  Flags, BED, `--chrom`, `-t`/splitting, `--tmpdir` and the always-written header are shared; the chromosomes are
+  planned on the tumor's header. An empty `--normal ''` fails (exit 2) instead of silently giving a tumor-only file.
+- Rows: samtools prints a position when a read of any input that passes the read filters (`-q`, `--ff`, anomalous
+  pairs skipped) overlaps it; filtered reads count for nothing, not even for the row. So the tumor-only file has a row
+  exactly where a filter-passing tumor read overlaps, equal to the paired file's `Depth2 Read2` there; tumor rows with
+  depth 0 (`0 *`, all bases below `-Q`) occur in both. It lacks the paired rows with tumor `0 *` that no
+  filter-passing tumor read overlaps: the normal-only positions, and those where every tumor read fails a read filter
+  (e.g. MAPQ < 20, duplicates, anomalous pairs).
 - `score --pileup` already took the last `Read` column when there is no `Read2`, so a tumor-only pileup is scored on
   `Read1` by default; the help texts now say so. EB (and PON±, AB) are identical via the tumor-only pileup, the
-  paired pileup and `--tumor-bam`; only `--keep-matrix`'s `Tumor` differs where only the normal covers a variant
-  (`0=0<0=0` from the paired pileup, `NA` from the other two).
+  paired pileup and `--tumor-bam`; only `--keep-matrix`'s `Tumor` differs at a variant that a filter-passing normal
+  read covers but no filter-passing tumor read does (`0=0<0=0` from the paired pileup, `NA` from the other two).
 - Python API: `paired_pileup()` is unchanged; `tumor_pileup()` is new, and both wrap `sample_pileup(bams, ...)`
   (`pileup_header(n)`, `TUMOR_HEADER`).

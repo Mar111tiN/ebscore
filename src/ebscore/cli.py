@@ -40,7 +40,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="sample pileup (cleanpileup -d), shared by EB and PON-CNV: paired normal/tumor, or tumor only",
         description="samtools mpileup | cleanpileup -d | gzip. With --normal: Chr Start Ref Depth1 Read1 Depth2 Read2 "
                     "(normal = sample 1, tumor = sample 2). Without --normal (tumor-only): Chr Start Ref Depth1 Read1 "
-                    "(tumor = sample 1); it holds the positions that a tumor read overlaps.",
+                    "(tumor = sample 1); it has a row where a tumor read that passes the read filters (-q, --ff, "
+                    "anomalous pairs) overlaps. The paired file also has tumor '0 *' rows where no such tumor read "
+                    "does (normal-only positions, or all tumor reads filtered).",
     )
     p.add_argument("--normal", help="normal BAM/CRAM (sample 1: Depth1 Read1); omit for a tumor-only pileup")
     p.add_argument("--tumor", required=True,

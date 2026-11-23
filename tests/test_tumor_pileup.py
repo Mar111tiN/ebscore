@@ -20,8 +20,12 @@ def lines(path):
         return fh.read().splitlines()
 
 
-def read_pileup(path) -> pd.DataFrame:
+def read_fields(path) -> pd.DataFrame:
+    """A TSV (plain or gz) with every field as the written string: comparisons are exact."""
     return pd.read_csv(path, sep="\t", dtype=str, keep_default_na=False)
+
+
+read_pileup = read_fields
 
 
 def tumor_args(b, out, *extra, tumor=None, bed=None):
@@ -103,29 +107,38 @@ def test_cli_without_normal_calls_the_tumor_pileup(monkeypatch):
 
 # ------------------------------------------------------------------ with samtools
 def test_samtools_row_semantics(bam_set, tmp_path):
-    """What samtools prints: a position is a row when a read of any input overlaps it; depth counts bases >= -Q.
+    """What samtools prints: a position is a row when a read of any input that passes the read filters (-q, --ff,
+    anomalous pairs) overlaps it; a filtered read counts for nothing, not even for the row. Depth counts bases >= -Q.
 
-    Normal reads at chrA 201-260 and 401-460 (1-based), one tumor read at 201-260 whose bases 221-230 have quality 2.
-    Tumor-only: 201-260, with 221-230 as ``0 *``. Paired: also 401-460, there with tumor ``0 *``.
+    1-based chrA. Normal reads at 201-260, 401-460, 601-660 and 801-860. Tumor reads: 201-260 (bases 221-230 with
+    quality 2), MAPQ 10 at 381-440, a duplicate at 601-660, an anomalous pair (paired, not proper) at 801-860.
+    Tumor-only: 201-260 only, with 221-230 as ``0 *``; no row where only filtered tumor reads lie. Paired: also
+    401-460, 601-660 and 801-860, there with tumor ``0 *`` (no row at 381-400: the MAPQ 10 read alone makes none).
     """
     b = bam_set
     seq = b["contigs"]["chrA"]
+    good = "I" * 60
 
     def bam(name, reads):
         sam = tmp_path / f"{name}.sam"
         rows = ["@HD\tVN:1.6\tSO:unsorted", *(f"@SQ\tSN:{c}\tLN:{len(s)}" for c, s in b["contigs"].items()),
                 f"@RG\tID:{name}\tSM:{name}"]
-        for i, (start, qual) in enumerate(reads):
-            rows.append(f"r{i}\t0\tchrA\t{start + 1}\t60\t60M\t*\t0\t0\t{seq[start:start + 60]}\t{qual}\tRG:Z:{name}")
+        for i, (start, qual, flag, mapq) in enumerate(reads):
+            mate = f"=\t{start + 301}\t360" if flag & 1 else "*\t0\t0"
+            rows.append(f"r{i}\t{flag}\tchrA\t{start + 1}\t{mapq}\t60M\t{mate}\t{seq[start:start + 60]}\t{qual}\t"
+                        f"RG:Z:{name}")
         sam.write_text("\n".join(rows) + "\n")
         sh(f"samtools sort -o {tmp_path / name}.bam {sam}")
         sh(f"samtools index {tmp_path / name}.bam")
         return tmp_path / f"{name}.bam"
 
-    normal = bam("n", [(200, "I" * 60), (400, "I" * 60)])
-    tumor = bam("t", [(200, "I" * 20 + "#" * 10 + "I" * 30)])
+    normal = bam("n", [(s, good, 0, 60) for s in (200, 400, 600, 800)])
+    tumor = bam("t", [(200, "I" * 20 + "#" * 10 + "I" * 30, 0, 60),
+                      (380, good, 0, 10),  # MAPQ 10 < -q 20
+                      (600, good, 1024, 60),  # duplicate (--ff DUP)
+                      (800, good, 1 | 32, 60)])  # paired, not properly paired: anomalous, skipped without -A
     bed = tmp_path / "w.bed"
-    bed.write_text("chrA\t150\t500\n")
+    bed.write_text("chrA\t150\t900\n")
     one, pair = tmp_path / "one.gz", tmp_path / "pair.gz"
     run("pileup", "--tumor", tumor, "--fasta", b["fasta"], "--bed", bed, "-o", one)
     run("pileup", "--normal", normal, "--tumor", tumor, "--fasta", b["fasta"], "--bed", bed, "-o", pair)
@@ -134,8 +147,10 @@ def test_samtools_row_semantics(bam_set, tmp_path):
     low = o["Start"].astype(int).between(221, 230)
     assert (o.loc[low, "Depth1"] == "0").all() and (o.loc[low, "Read1"] == "*").all()
     assert (o.loc[~low, "Depth1"] == "1").all()
+    p = read_pileup(pair)
+    assert p["Start"].astype(int).tolist() == [*range(201, 261), *range(401, 461), *range(601, 661), *range(801, 861)]
     pair_only = compare(one, pair)
-    assert sorted(pair_only["Start"].astype(int)) == list(range(401, 461))
+    assert sorted(pair_only["Start"].astype(int)) == [*range(401, 461), *range(601, 661), *range(801, 861)]
 
 
 def test_tumor_only_equals_the_paired_tumor_columns(bam_set, tumor_part, tmp_path):
@@ -189,13 +204,16 @@ def test_eb_same_via_tumor_only_pileup_paired_pileup_and_tumor_bam(bam_set, tumo
         run(*common, "--pileup", one, "--tumor-column", "Read1", "-o", outs["one_read1"])
         run(*common, "--pileup", pair, "-o", outs["pair"])
         run(*common, "--tumor-bam", tumor, "--fasta", b["fasta"], "-o", outs["bam"])
-        res = {k: pd.read_csv(v, sep="\t") for k, v in outs.items()}
+        # identical = the same bytes / the same written strings, no float tolerance (assert_frame_equal on parsed
+        # floats allows a relative 1e-5 by default, e.g. a drift between "one" at -t 2 and the others at -t 1)
         for k in ("one_read1", "bam"):
-            pd.testing.assert_frame_equal(res["one"], res[k], obj=f"{name}: tumor-only pileup vs {k}")
-        # where only the normal covers a variant, the paired route sees tumor depth 0 (Tumor 0=0<0=0) and the other
-        # two see no tumor row (Tumor NA); PON+, PON-, AB and EB are the same
-        pd.testing.assert_frame_equal(res["one"].drop(columns="Tumor"), res["pair"].drop(columns="Tumor"),
-                                      obj=f"{name}: tumor-only vs paired pileup")
+            assert outs["one"].read_bytes() == outs[k].read_bytes(), f"{name}: tumor-only pileup vs {k}"
+        # where a normal read but no tumor read (passing the read filters) covers a variant, the paired route sees
+        # tumor depth 0 (Tumor 0=0<0=0) and the other two see no tumor row (Tumor NA); PON+, PON-, AB, EB are the same
+        pd.testing.assert_frame_equal(read_fields(outs["one"]).drop(columns="Tumor"),
+                                      read_fields(outs["pair"]).drop(columns="Tumor"),
+                                      obj=f"{name}: tumor-only vs paired pileup (written strings)")
+        res = {k: pd.read_csv(v, sep="\t") for k, v in outs.items()}
         has = res["one"]["Tumor"].notna()
         assert res["one"].loc[has, "Tumor"].equals(res["pair"].loc[has, "Tumor"])
         assert res["pair"].loc[~has, "Tumor"].tolist() == ([] if name == "full" else ["0=0<0=0"])
