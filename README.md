@@ -237,14 +237,19 @@ legacy-style reference fit; real PON data never goes into the repo.
 process table), so `tests/test_cli_contract.py` compares the parser with the snapshot `tests/data/cli_contract.json`.
 Per command it holds the sorted option strings, and per option the flags, required, the action kind (`store`,
 `store_true`, `append`, …), `nargs`, `type`, `choices` and the default when it is a constant; also the mutually
-exclusive groups and positionals. Help texts are not part of it (argparse formats `--help` differently between Python
-versions). The test also parses the module command lines of design §3. After a deliberate CLI change:
+exclusive groups and positionals, and the `--version` output format with the version masked (`ebscore <version>`;
+versions.yml parses it). Help texts are not part of it (argparse formats `--help` differently between Python
+versions). The comparison is type-exact (a default `1` → `1.0` or `0` → `false` is a change). The test also parses
+the module command lines of design §3 with prefix matching off, so a renamed flag fails even when the old one is a
+prefix of the new one. After a deliberate CLI change:
 
 ```bash
 python tests/make_cli_contract.py   # rewrites the JSON from this checkout's src/, prints the changes and the modules
 ```
 
-Then commit the JSON with the change and review the kumo-variant-calling-nf modules that call the changed flags.
+Then commit the JSON with the change and review the kumo-variant-calling-nf modules that call the changed flags. The
+failure message names the ebscore the test imported. If it warns about a stale install (another copy than this
+checkout's `src/`, with other code), do not regenerate: reinstall (`pip install -e .`) or set `PYTHONPATH=src`.
 
 ## Docker
 

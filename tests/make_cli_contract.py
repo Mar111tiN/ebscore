@@ -3,10 +3,11 @@
 The kumo-variant-calling-nf modules (design section 3 process table) call the ebscore subcommands with fixed flags.
 The snapshot records, per (sub)command: the sorted option strings; per option (keyed by its first long flag) its
 flags, required, the action kind (store, store_true, append, extend, help, version, ...), nargs, type, choices and the
-default when it is a constant (None, bool, int, finite float, str, or a list of them); the positionals in order; the
-mutually exclusive groups; and the subcommands. Help texts and metavars are not part of it: the wording is free, and
-argparse formats --help differently between Python versions. tests/test_cli_contract.py rebuilds the structure and
-compares it with the JSON.
+default when it is a constant (None, bool, int, finite float, str, or a list of them); for `--version` the output
+template with the version masked (`ebscore <version>`: versions.yml parses it, a version bump is no change); the
+positionals in order; the mutually exclusive groups; and the subcommands. Help texts and metavars are not part of it:
+the wording is free, and argparse formats --help differently between Python versions. tests/test_cli_contract.py
+rebuilds the structure and compares it with the JSON as canonical JSON text, so 1, 1.0 and true are different values.
 
 After a deliberate CLI change, rerun this script, review the printed changes and the modules that call the changed
 flags, and commit the JSON with the change:
@@ -17,6 +18,7 @@ flags, and commit the JSON with the change:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import sys
@@ -24,7 +26,9 @@ from pathlib import Path
 
 HERE = Path(__file__).parent
 CONTRACT = HERE / "data" / "cli_contract.json"
+SRC_PKG = HERE.parent / "src" / "ebscore"  # what this script snapshots (main() puts src/ first on sys.path)
 SCHEMA = "ebscore-cli-contract/1"
+VERSION_MASK = "<version>"
 
 # Which kumo-variant-calling-nf module calls which subcommand (design section 3 process table, 2026-11-23).
 NF_MODULES = {
@@ -53,7 +57,7 @@ def _key(action: argparse.Action) -> str:
     return (longs or action.option_strings or [action.dest])[0]
 
 
-def _describe_action(action: argparse.Action, kinds: dict) -> dict:
+def _describe_action(action: argparse.Action, kinds: dict, version: str | None) -> dict:
     kind = kinds.get(type(action), type(action).__name__)
     entry = {
         "flags": sorted(action.option_strings),
@@ -67,11 +71,14 @@ def _describe_action(action: argparse.Action, kinds: dict) -> dict:
         entry["const"] = action.const
     if _is_constant(action.default):  # a computed default (e.g. from the environment) is left out
         entry["default"] = action.default
+    if kind == "version":  # the output format (versions.yml parses it), not the version itself
+        template = getattr(action, "version", None)
+        entry["version"] = template.replace(version, VERSION_MASK) if template and version else template
     return entry
 
 
-def describe_parser(parser: argparse.ArgumentParser) -> dict:
-    """The contract of one parser (and, recursively, of its subcommands)."""
+def describe_parser(parser: argparse.ArgumentParser, version: str | None = None) -> dict:
+    """The contract of one parser (and, recursively, of its subcommands); `version` is masked in --version."""
     # argparse's own action registry names the kinds: {_StoreAction: 'store', _AppendAction: 'append', ...}
     kinds = {cls: name for name, cls in parser._registries["action"].items() if isinstance(name, str)}
     out = {
@@ -87,22 +94,32 @@ def describe_parser(parser: argparse.ArgumentParser) -> dict:
     for action in parser._actions:
         if isinstance(action, argparse._SubParsersAction):
             out["command_required"] = bool(action.required)
-            out["commands"] = {name: describe_parser(sub) for name, sub in sorted(action.choices.items())}
+            out["commands"] = {name: describe_parser(sub, version) for name, sub in sorted(action.choices.items())}
         elif action.option_strings:
-            out["options"][_key(action)] = _describe_action(action, kinds)
+            out["options"][_key(action)] = _describe_action(action, kinds, version)
         else:
-            out["positionals"].append({"dest": action.dest, **_describe_action(action, kinds)})
+            out["positionals"].append({"dest": action.dest, **_describe_action(action, kinds, version)})
     return out
 
 
-def build_contract(parser: argparse.ArgumentParser | None = None) -> dict:
-    """The contract of `parser` (default: ebscore.cli.build_parser()), as plain JSON types."""
+def build_contract(parser: argparse.ArgumentParser | None = None, version: str | None = None) -> dict:
+    """The contract of `parser` (default: ebscore.cli.build_parser(), version ebscore.__version__), as JSON types."""
     if parser is None:
+        import ebscore
         from ebscore.cli import build_parser
 
-        parser = build_parser()
-    contract = {"schema": SCHEMA, "prog": parser.prog, **describe_parser(parser)}
+        parser, version = build_parser(), ebscore.__version__
+    contract = {"schema": SCHEMA, "prog": parser.prog, **describe_parser(parser, version)}
     return json.loads(json.dumps(contract))  # tuples -> lists: equal to what json.load gives back
+
+
+def _canonical(obj) -> str:
+    return json.dumps(obj, sort_keys=True)
+
+
+def same(old, new) -> bool:
+    """Equal as JSON text: unlike `==`, 1, 1.0 and true differ (as they do in the snapshot file)."""
+    return _canonical(old) == _canonical(new)
 
 
 def _flat(obj) -> bool:
@@ -150,7 +167,7 @@ def contract_diff(old, new, path: tuple = ()) -> list[str]:
             else:
                 lines += contract_diff(old[k], new[k], path + (k,))
         return lines
-    if old == new:
+    if same(old, new):  # not `==`: a default 1 -> 1.0 or 0 -> false is a change
         return []
     if isinstance(old, list) and isinstance(new, list) and all(isinstance(v, str) for v in old + new):
         gone, added = [v for v in old if v not in new], [v for v in new if v not in old]
@@ -164,12 +181,40 @@ def affected_modules(old: dict, new: dict) -> list[str]:
     """The kumo-variant-calling-nf modules whose subcommand changed (design section 3)."""
     old_cmds, new_cmds = old.get("commands", {}), new.get("commands", {})
     out = [NF_MODULES.get(c, f"`{c}`: no module calls it yet")
-           for c in sorted(set(old_cmds) | set(new_cmds)) if old_cmds.get(c) != new_cmds.get(c)]
+           for c in sorted(set(old_cmds) | set(new_cmds)) if not same(old_cmds.get(c), new_cmds.get(c))]
     old_top = {k: v for k, v in old.items() if k != "commands"}
     new_top = {k: v for k, v in new.items() if k != "commands"}
-    if old_top != new_top:
+    if not same(old_top, new_top):
         out.insert(0, TOP_LEVEL_MODULES)
     return out
+
+
+def _py_digest(pkg: Path) -> str:
+    h = hashlib.sha256()
+    for f in sorted(pkg.rglob("*.py")):
+        h.update(f.relative_to(pkg).as_posix().encode() + b"\0" + f.read_bytes() + b"\0")
+    return h.hexdigest()
+
+
+def stale_install(module, src_pkg: Path = SRC_PKG) -> bool:
+    """True when `module` (the imported ebscore) is another copy than this checkout's src/ and its code differs.
+
+    A non-editable install of this checkout (CI, the Docker test stage) is another copy with the same code: not stale.
+    """
+    pkg = Path(module.__file__).resolve().parent
+    return src_pkg.is_dir() and pkg != src_pkg.resolve() and _py_digest(pkg) != _py_digest(src_pkg)
+
+
+def source_note(module, src_pkg: Path = SRC_PKG) -> list[str]:
+    """Which ebscore was snapshotted or tested, and a warning when it is a stale install (see stale_install)."""
+    lines = [f"(ebscore {module.__version__} from {Path(module.__file__).resolve().parent})"]
+    if stale_install(module, src_pkg):
+        lines += [
+            f"WARNING: that is not this checkout's {src_pkg}, and its code differs: a stale install.",
+            "The script snapshots src/, so rerunning it does not fix this, and the JSON must not be regenerated for it.",
+            "Reinstall (`pip install -e .`) or set PYTHONPATH=src, then rerun the test.",
+        ]
+    return lines
 
 
 def main() -> int:
@@ -181,7 +226,7 @@ def main() -> int:
     new = build_contract()
     old = json.loads(CONTRACT.read_text()) if CONTRACT.exists() else None
     CONTRACT.write_text(render(new))
-    print(f"wrote {CONTRACT} (ebscore {ebscore.__version__} from {Path(ebscore.__file__).parent})")
+    print(f"wrote {CONTRACT}", *source_note(ebscore))
     if old is None:
         return 0
     changes = contract_diff(old, new)

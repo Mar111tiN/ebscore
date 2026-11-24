@@ -201,3 +201,17 @@ Port of `main` (HEAD `ef67010`) for kumo-variant-calling-nf. Values were checked
   modules. It also parses the module command lines of design §3 (`EBSCORE_PONMATRIX`, `EBSCORE_PILEUP` paired and
   tumor-only, `EBSCORE_UNION`, `EBSCORE_PONSUBSET` run and per pair, `EBSCORE_SCORE` with `--pileup` and
   `--tumor-bam`), so the module flags cannot drift unnoticed (plan risk "moving CLIs").
+- C1 review fixes (test only):
+  - The contract is compared as canonical JSON text, not with `==`, in the test, in the script's change list and in
+    the module list. `==` let a default `1` → `1.0` or `0` → `false` pass (Python: `1 == 1.0 == True`), and the
+    script reported "no contract change" while rewriting the file.
+  - The module command lines are parsed with prefix matching off on every parser. argparse's `allow_abbrev`
+    accepted a stale flag after a rename to a longer one (`--vcf-annotation` → `--vcf-annotation-file`), so the
+    design §3 copy could drift once the JSON was regenerated.
+  - `--version` records its output template with the version masked (`"version": "ebscore <version>"`). A changed
+    format (which versions.yml parses) is a change of the top-level contract; a version bump is not. A test checks
+    that `ebscore --version` prints that template.
+  - The failure message names the ebscore the test imported (version, folder). If that is another copy than this
+    checkout's `src/` and its code differs (a stale install, e.g. an editable install of another checkout), it says
+    so and drops the "rerun the script" advice, since the script snapshots `src/`. A non-editable install of the same
+    code (CI, the Docker test stage) counts as current.
