@@ -65,7 +65,7 @@ jobs:
           docker image ls ebscore:ci --format '{{.Repository}}:{{.Tag}} {{.Size}}'
           docker image inspect --format 'inspect .Size: {{.Size}} bytes' ebscore:ci
           docker history --no-trunc --format '{{.Size}}\t{{.CreatedBy}}' ebscore:ci | cut -c1-160
-          docker run --rm ebscore:ci du -sh /opt/conda /usr /var
+          docker run --rm ebscore:ci du -sh /opt/conda /usr
       # Trivy 0.69.3 (the kumo-docker-scientific CI version) as a container; the vuln DB is cached in a volume for
       # the three scans of this job. Gate = library packages, fixed vulns only, HIGH/CRITICAL. Accepted findings go
       # into .trivyignore with a reason (plan 3b/D24).
