@@ -27,13 +27,32 @@ COPY --chown=$MAMBA_USER:$MAMBA_USER tests /tmp/ebscore/tests
 WORKDIR /tmp/ebscore
 RUN /opt/conda/bin/python -m pytest -q -p no:cacheprovider tests
 
+# ---- slim: the tested env minus what nothing runs (plan 3b, 2026-11-24; about half the size) ----
+# docker/slim_env.py: force-removes the listed packages that are installed (pytest and its helpers, tk), deletes test
+# suites, headers, static libs, docs, translations and __pycache__, and strips the ELF files (--strip-unneeded keeps the
+# dynamic symbols). Checked on a copy of the env: full test suite and tier-A smoke unchanged.
+FROM build AS slim
+USER root
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends binutils \
+ && rm -rf /var/lib/apt/lists/*
+USER $MAMBA_USER
+COPY --chown=$MAMBA_USER:$MAMBA_USER docker/slim_env.py /tmp/slim_env.py
+RUN /opt/conda/bin/python -I /tmp/slim_env.py /opt/conda --remove pytest pygments packaging pluggy colorama \
+        exceptiongroup typing_extensions tomli iniconfig tk pip \
+ && micromamba env export -n base > /opt/conda/env.lock.yml \
+ && micromamba clean -a -y \
+ && /opt/conda/bin/ebscore --version
+
 # ---- runtime: the shipped image (must stay the last stage) ----
 FROM debian:13.7-slim AS runtime
 RUN apt-get update \
  && apt-get install -y --no-install-recommends bash procps \
  && rm -rf /var/lib/apt/lists/*
-COPY --from=build /opt/conda /opt/conda
-ENV PATH=/opt/conda/bin:$PATH
+COPY --from=slim /opt/conda /opt/conda
+# no __pycache__ in the env (slim stage) and /opt/conda is not writable for the task user: never try to write .pyc
+ENV PATH=/opt/conda/bin:$PATH \
+    PYTHONDONTWRITEBYTECODE=1
 RUN useradd -m ebscore_user
 USER ebscore_user
 WORKDIR /home/ebscore_user
