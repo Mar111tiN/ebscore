@@ -140,6 +140,7 @@ docker build -t ebscore:<version> .   # runtime: debian slim + /opt/conda, non-r
 ```
 
 CI (`.github/workflows/ci.yml`, plan D24): on push/PR to `kumodev`, pytest in a micromamba env from `environment.yml`,
-then the Docker test stage, the runtime image, a runtime smoke check and Trivy 0.69.3: a Dockerfile config scan,
+then the Docker test stage, the runtime image, a runtime smoke check, the tier-A fixture smoke inside the image
+(`tests/smoke/smoke_ebscore.sh` on `tests/data/plumbing/`, as the image user and as an arbitrary uid) and Trivy 0.69.3: a Dockerfile config scan,
 the vulnerability gate (library packages, fixed vulnerabilities, HIGH/CRITICAL; accepted findings go into `.trivyignore`
 with a reason) and an informational report that includes the OS packages.

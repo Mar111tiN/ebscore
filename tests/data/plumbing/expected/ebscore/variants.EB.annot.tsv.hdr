@@ -1,0 +1,1 @@
+##INFO=<ID=EB,Number=A,Type=Float,Description="EB artifact score vs the PONmatrix (ebscore): -log10 p of the tumor alt reads under the PON beta-binomial, 0-60; low = artifact-like">
