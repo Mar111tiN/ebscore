@@ -258,8 +258,9 @@ def write_vcf_annotation(df: pd.DataFrame, path) -> int:
     """Write ``#CHROM POS REF ALT EB`` (VCF coordinates, scored rows only) for bgzip + tabix + bcftools annotate.
 
     Rows are sorted by chromosome (input order) and numeric POS, so ``tabix -s1 -b2 -e2`` accepts the file. Also
-    writes ``<path>.hdr`` with the INFO header line (``Number=A``: one value per ALT, so the per-allele EB of
-    multi-allelic records survive ``bcftools annotate -h <path>.hdr``).
+    writes ``<path>.hdr`` with the INFO header line (``Number=A``: one value per ALT). One line per ALT is not enough
+    for multi-allelic VCF records: bcftools 1.21 keeps only one ALT's EB (``EB=1.5,.``). Merge the lines of one
+    CHROM POS REF first (ALTs and EBs comma-joined in the same order; see README) before ``bcftools annotate``.
     """
     if not set(VCF_COLUMNS) <= set(df.columns):
         raise ValueError("VCF annotation needs a VCF input (vcf_* columns)")

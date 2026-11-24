@@ -60,10 +60,23 @@ ebscore vcf2table --vcf calls.vcf.gz -o calls.tsv
 `score` output: the input columns, then `PON+ PON- EB` (`PON±` = `alt1|…|altN<depth1|…|depthN` per strand;
 `--keep-matrix` adds `Tumor` and `AB`). No variants give a header-only output. `--vcf-annotation` writes
 `#CHROM POS REF ALT EB` (VCF coordinates, one line per scored ALT, sorted by chromosome and POS) plus `<file>.hdr`,
-the INFO header with `Number=A`, so multi-allelic records keep one EB per ALT:
+the INFO header with `Number=A`.
+
+One line per ALT is **not** enough for multi-allelic VCF records. bcftools 1.21 then keeps only one ALT's value
+(`ALT=C,T` gets `EB=1.5,.`), and bcftools 1.25 merges a Float but not a String tag. Merge the lines of one
+`CHROM POS REF` first, with ALTs and EBs comma-joined in the same order. The merged form is correct on both versions
+(probe 2026-11-24; the kumo-variant-calling-nf module `EBSCORE_SCORE` does the same). Key on REF too: lines are sorted
+by POS only, so several REFs at one POS can interleave.
 
 ```bash
-bgzip -c calls.EB.annot.tsv > ann.tsv.gz && tabix -s1 -b2 -e2 ann.tsv.gz
+awk -F'\t' -v OFS='\t' '
+  /^#/ { print; next }
+  { k = $1 OFS $2 OFS $3 }
+  !(k in alt) { order[++n] = k; alt[k] = $4; eb[k] = $5; next }
+  { alt[k] = alt[k] "," $4; eb[k] = eb[k] "," $5 }
+  END { for (i = 1; i <= n; i++) print order[i], alt[order[i]], eb[order[i]] }
+' calls.EB.annot.tsv > calls.EB.annot.merged.tsv
+bgzip -c calls.EB.annot.merged.tsv > ann.tsv.gz && tabix -s1 -b2 -e2 ann.tsv.gz
 bcftools annotate -a ann.tsv.gz -h calls.EB.annot.tsv.hdr -c CHROM,POS,REF,ALT,INFO/EB calls.vcf.gz -Oz -o calls.EB.vcf.gz
 ```
 
