@@ -220,7 +220,8 @@ bit.
 ## Tests
 
 ```bash
-pytest -q          # mawk tools, core math, legacy parity, VCF conversion, scoring options, simulated BAMs, subsets
+pytest -q          # mawk tools, core math, legacy parity, VCF conversion, scoring options, simulated BAMs, subsets,
+                   # CLI contract
 ```
 
 `tests/data/legacy/` holds outputs of the unmodified `main` code (py 3.9, pandas 1.5.2, scipy 1.9.3), made by
@@ -231,6 +232,19 @@ holds PON vectors where a single L-BFGS-B run stops at a non-stationary point. T
 legacy AB values (`tests/data/legacy/ponmatrix/AB/`, reference data only). `tests/test_real_pon.py` is opt-in
 (`EBSCORE_REAL_PONMATRIX=<PONmatrix folder>`): it checks the fit on real PON rows and prints the EB shift against a
 legacy-style reference fit; real PON data never goes into the repo.
+
+**CLI contract (plan C1).** The kumo-variant-calling-nf modules call these subcommands with fixed flags (design §3
+process table), so `tests/test_cli_contract.py` compares the parser with the snapshot `tests/data/cli_contract.json`.
+Per command it holds the sorted option strings, and per option the flags, required, the action kind (`store`,
+`store_true`, `append`, …), `nargs`, `type`, `choices` and the default when it is a constant; also the mutually
+exclusive groups and positionals. Help texts are not part of it (argparse formats `--help` differently between Python
+versions). The test also parses the module command lines of design §3. After a deliberate CLI change:
+
+```bash
+python tests/make_cli_contract.py   # rewrites the JSON from this checkout's src/, prints the changes and the modules
+```
+
+Then commit the JSON with the change and review the kumo-variant-calling-nf modules that call the changed flags.
 
 ## Docker
 

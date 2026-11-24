@@ -187,3 +187,17 @@ Port of `main` (HEAD `ef67010`) for kumo-variant-calling-nf. Values were checked
     unless `--allow-missing-chrom`, as against the full set.
   - README: the cost of the per-pair step (N_pairs × the run subset, growing with the square of the run size; at 100
     WES pairs with mostly private positions 6–12 times the full pass) and `-t` in the per-pair calls.
+
+### CLI contract snapshot (plan C1, 2026-11-24)
+- Test only, no change to the CLI or its output. `tests/data/cli_contract.json` (schema `ebscore-cli-contract/1`) is a
+  snapshot of `ebscore.cli.build_parser()`, written by `tests/make_cli_contract.py`: per command the sorted option
+  strings, and per option the flags, required, the action kind, `nargs`, `type`, `choices` and the default when it is
+  a constant; also the mutually exclusive groups (`score`: `--pileup` | `--tumor-bam`, required), the positionals and
+  the subcommands, including the T1 `pileup` (`--normal` optional) and the T2 `pon-subset` options. Help texts are
+  not snapshotted, since argparse formats `--help` differently between Python versions; the snapshot is the same on
+  Python 3.9 and 3.15.
+- `tests/test_cli_contract.py` fails on any difference and lists each changed entry and the kumo-variant-calling-nf
+  modules that call the changed subcommand (design §3), with the instruction to rerun the script and review those
+  modules. It also parses the module command lines of design §3 (`EBSCORE_PONMATRIX`, `EBSCORE_PILEUP` paired and
+  tumor-only, `EBSCORE_UNION`, `EBSCORE_PONSUBSET` run and per pair, `EBSCORE_SCORE` with `--pileup` and
+  `--tumor-bam`), so the module flags cannot drift unnoticed (plan risk "moving CLIs").

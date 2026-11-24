@@ -1,0 +1,113 @@
+{
+  "command_required": true,
+  "commands": {
+    "pileup": {
+      "mutually_exclusive": [],
+      "option_strings": ["--bed", "--chrom", "--fasta", "--help", "--min-baseq", "--min-mapq", "--normal", "--output", "--quiet", "--threads", "--tmpdir", "--tumor", "--verbose", "-h", "-o", "-t", "-v"],
+      "options": {
+        "--bed": {"action": "store", "choices": null, "default": null, "flags": ["--bed"], "nargs": null, "required": true, "type": null},
+        "--chrom": {"action": "append", "choices": null, "default": null, "flags": ["--chrom"], "nargs": null, "required": false, "type": null},
+        "--fasta": {"action": "store", "choices": null, "default": null, "flags": ["--fasta"], "nargs": null, "required": true, "type": null},
+        "--help": {"action": "help", "choices": null, "default": "==SUPPRESS==", "flags": ["--help", "-h"], "nargs": 0, "required": false, "type": null},
+        "--min-baseq": {"action": "store", "choices": null, "default": 25, "flags": ["--min-baseq"], "nargs": null, "required": false, "type": "int"},
+        "--min-mapq": {"action": "store", "choices": null, "default": 20, "flags": ["--min-mapq"], "nargs": null, "required": false, "type": "int"},
+        "--normal": {"action": "store", "choices": null, "default": null, "flags": ["--normal"], "nargs": null, "required": false, "type": null},
+        "--output": {"action": "store", "choices": null, "default": null, "flags": ["--output", "-o"], "nargs": null, "required": true, "type": null},
+        "--quiet": {"action": "store_true", "choices": null, "default": false, "flags": ["--quiet"], "nargs": 0, "required": false, "type": null},
+        "--threads": {"action": "store", "choices": null, "default": 1, "flags": ["--threads", "-t"], "nargs": null, "required": false, "type": "int"},
+        "--tmpdir": {"action": "store", "choices": null, "default": null, "flags": ["--tmpdir"], "nargs": null, "required": false, "type": null},
+        "--tumor": {"action": "store", "choices": null, "default": null, "flags": ["--tumor"], "nargs": null, "required": true, "type": null},
+        "--verbose": {"action": "store_true", "choices": null, "default": false, "flags": ["--verbose", "-v"], "nargs": 0, "required": false, "type": null}
+      },
+      "positionals": []
+    },
+    "pon-matrix": {
+      "mutually_exclusive": [],
+      "option_strings": ["--bam-list", "--bed", "--chrom", "--fasta", "--help", "--min-baseq", "--min-mapq", "--outdir", "--quiet", "--threads", "--verbose", "-h", "-o", "-t", "-v"],
+      "options": {
+        "--bam-list": {"action": "store", "choices": null, "default": null, "flags": ["--bam-list"], "nargs": null, "required": true, "type": null},
+        "--bed": {"action": "store", "choices": null, "default": null, "flags": ["--bed"], "nargs": null, "required": true, "type": null},
+        "--chrom": {"action": "append", "choices": null, "default": null, "flags": ["--chrom"], "nargs": null, "required": false, "type": null},
+        "--fasta": {"action": "store", "choices": null, "default": null, "flags": ["--fasta"], "nargs": null, "required": true, "type": null},
+        "--help": {"action": "help", "choices": null, "default": "==SUPPRESS==", "flags": ["--help", "-h"], "nargs": 0, "required": false, "type": null},
+        "--min-baseq": {"action": "store", "choices": null, "default": 25, "flags": ["--min-baseq"], "nargs": null, "required": false, "type": "int"},
+        "--min-mapq": {"action": "store", "choices": null, "default": 20, "flags": ["--min-mapq"], "nargs": null, "required": false, "type": "int"},
+        "--outdir": {"action": "store", "choices": null, "default": null, "flags": ["--outdir", "-o"], "nargs": null, "required": true, "type": null},
+        "--quiet": {"action": "store_true", "choices": null, "default": false, "flags": ["--quiet"], "nargs": 0, "required": false, "type": null},
+        "--threads": {"action": "store", "choices": null, "default": 1, "flags": ["--threads", "-t"], "nargs": null, "required": false, "type": "int"},
+        "--verbose": {"action": "store_true", "choices": null, "default": false, "flags": ["--verbose", "-v"], "nargs": 0, "required": false, "type": null}
+      },
+      "positionals": []
+    },
+    "pon-subset": {
+      "mutually_exclusive": [],
+      "option_strings": ["--allow-missing-chrom", "--chrom", "--help", "--outdir", "--ponmatrix", "--positions", "--quiet", "--threads", "--variants", "--verbose", "-h", "-o", "-t", "-v"],
+      "options": {
+        "--allow-missing-chrom": {"action": "store_true", "choices": null, "default": false, "flags": ["--allow-missing-chrom"], "nargs": 0, "required": false, "type": null},
+        "--chrom": {"action": "append", "choices": null, "default": null, "flags": ["--chrom"], "nargs": null, "required": false, "type": null},
+        "--help": {"action": "help", "choices": null, "default": "==SUPPRESS==", "flags": ["--help", "-h"], "nargs": 0, "required": false, "type": null},
+        "--outdir": {"action": "store", "choices": null, "default": null, "flags": ["--outdir", "-o"], "nargs": null, "required": true, "type": null},
+        "--ponmatrix": {"action": "store", "choices": null, "default": null, "flags": ["--ponmatrix"], "nargs": null, "required": true, "type": null},
+        "--positions": {"action": "append", "choices": null, "default": [], "flags": ["--positions"], "nargs": null, "required": false, "type": null},
+        "--quiet": {"action": "store_true", "choices": null, "default": false, "flags": ["--quiet"], "nargs": 0, "required": false, "type": null},
+        "--threads": {"action": "store", "choices": null, "default": 1, "flags": ["--threads", "-t"], "nargs": null, "required": false, "type": "int"},
+        "--variants": {"action": "append", "choices": null, "default": [], "flags": ["--variants"], "nargs": null, "required": false, "type": null},
+        "--verbose": {"action": "store_true", "choices": null, "default": false, "flags": ["--verbose", "-v"], "nargs": 0, "required": false, "type": null}
+      },
+      "positionals": []
+    },
+    "score": {
+      "mutually_exclusive": [
+        {"options": ["--pileup", "--tumor-bam"], "required": true}
+      ],
+      "option_strings": ["--allow-missing-chrom", "--chrom", "--exclude-index", "--exclude-sample", "--fasta", "--fisher", "--help", "--keep-matrix", "--min-baseq", "--min-mapq", "--missing", "--output", "--penalty", "--pileup", "--ponmatrix", "--quiet", "--threads", "--tmpdir", "--tumor-bam", "--tumor-column", "--variants", "--vcf-annotation", "--verbose", "-h", "-o", "-t", "-v"],
+      "options": {
+        "--allow-missing-chrom": {"action": "store_true", "choices": null, "default": false, "flags": ["--allow-missing-chrom"], "nargs": 0, "required": false, "type": null},
+        "--chrom": {"action": "append", "choices": null, "default": null, "flags": ["--chrom"], "nargs": null, "required": false, "type": null},
+        "--exclude-index": {"action": "append", "choices": null, "default": [], "flags": ["--exclude-index"], "nargs": null, "required": false, "type": "int"},
+        "--exclude-sample": {"action": "append", "choices": null, "default": [], "flags": ["--exclude-sample"], "nargs": null, "required": false, "type": null},
+        "--fasta": {"action": "store", "choices": null, "default": null, "flags": ["--fasta"], "nargs": null, "required": false, "type": null},
+        "--fisher": {"action": "store", "choices": ["sf", "legacy"], "default": "sf", "flags": ["--fisher"], "nargs": null, "required": false, "type": null},
+        "--help": {"action": "help", "choices": null, "default": "==SUPPRESS==", "flags": ["--help", "-h"], "nargs": 0, "required": false, "type": null},
+        "--keep-matrix": {"action": "store_true", "choices": null, "default": false, "flags": ["--keep-matrix"], "nargs": 0, "required": false, "type": null},
+        "--min-baseq": {"action": "store", "choices": null, "default": 25, "flags": ["--min-baseq"], "nargs": null, "required": false, "type": "int"},
+        "--min-mapq": {"action": "store", "choices": null, "default": 20, "flags": ["--min-mapq"], "nargs": null, "required": false, "type": "int"},
+        "--missing": {"action": "store", "choices": ["na", "zero"], "default": "na", "flags": ["--missing"], "nargs": null, "required": false, "type": null},
+        "--output": {"action": "store", "choices": null, "default": null, "flags": ["--output", "-o"], "nargs": null, "required": true, "type": null},
+        "--penalty": {"action": "store", "choices": null, "default": 0.5, "flags": ["--penalty"], "nargs": null, "required": false, "type": "float"},
+        "--pileup": {"action": "store", "choices": null, "default": null, "flags": ["--pileup"], "nargs": null, "required": false, "type": null},
+        "--ponmatrix": {"action": "store", "choices": null, "default": null, "flags": ["--ponmatrix"], "nargs": null, "required": true, "type": null},
+        "--quiet": {"action": "store_true", "choices": null, "default": false, "flags": ["--quiet"], "nargs": 0, "required": false, "type": null},
+        "--threads": {"action": "store", "choices": null, "default": 1, "flags": ["--threads", "-t"], "nargs": null, "required": false, "type": "int"},
+        "--tmpdir": {"action": "store", "choices": null, "default": null, "flags": ["--tmpdir"], "nargs": null, "required": false, "type": null},
+        "--tumor-bam": {"action": "store", "choices": null, "default": null, "flags": ["--tumor-bam"], "nargs": null, "required": false, "type": null},
+        "--tumor-column": {"action": "store", "choices": null, "default": null, "flags": ["--tumor-column"], "nargs": null, "required": false, "type": null},
+        "--variants": {"action": "store", "choices": null, "default": null, "flags": ["--variants"], "nargs": null, "required": true, "type": null},
+        "--vcf-annotation": {"action": "store", "choices": null, "default": null, "flags": ["--vcf-annotation"], "nargs": null, "required": false, "type": null},
+        "--verbose": {"action": "store_true", "choices": null, "default": false, "flags": ["--verbose", "-v"], "nargs": 0, "required": false, "type": null}
+      },
+      "positionals": []
+    },
+    "vcf2table": {
+      "mutually_exclusive": [],
+      "option_strings": ["--help", "--output", "--quiet", "--vcf", "--verbose", "-h", "-o", "-v"],
+      "options": {
+        "--help": {"action": "help", "choices": null, "default": "==SUPPRESS==", "flags": ["--help", "-h"], "nargs": 0, "required": false, "type": null},
+        "--output": {"action": "store", "choices": null, "default": null, "flags": ["--output", "-o"], "nargs": null, "required": true, "type": null},
+        "--quiet": {"action": "store_true", "choices": null, "default": false, "flags": ["--quiet"], "nargs": 0, "required": false, "type": null},
+        "--vcf": {"action": "store", "choices": null, "default": null, "flags": ["--vcf"], "nargs": null, "required": true, "type": null},
+        "--verbose": {"action": "store_true", "choices": null, "default": false, "flags": ["--verbose", "-v"], "nargs": 0, "required": false, "type": null}
+      },
+      "positionals": []
+    }
+  },
+  "mutually_exclusive": [],
+  "option_strings": ["--help", "--version", "-h"],
+  "options": {
+    "--help": {"action": "help", "choices": null, "default": "==SUPPRESS==", "flags": ["--help", "-h"], "nargs": 0, "required": false, "type": null},
+    "--version": {"action": "version", "choices": null, "default": "==SUPPRESS==", "flags": ["--version"], "nargs": 0, "required": false, "type": null}
+  },
+  "positionals": [],
+  "prog": "ebscore",
+  "schema": "ebscore-cli-contract/1"
+}
