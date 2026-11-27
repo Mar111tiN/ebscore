@@ -50,7 +50,7 @@ ebscore pon-subset --ponmatrix run_subset/ -o p1_subset/ --variants p1.union.tsv
 ebscore score --variants p1.union.tsv --ponmatrix p1_subset/ --pileup p1.pileup.gz -o p1.EB.tsv ...
 
 # 4. PON-CNV from the same pileup: myCNV `mycnv sample --pileup pair.pileup.gz ...`.
-#    Tumor-only is PLANNED (myCNV plan M1, not in mycnv yet; flag names may change):
+#    Tumor-only (myCNV M1; used by kumo-variant-calling-nf since its step H):
 #    `mycnv sample --tumor-only --pileup T.pileup.gz --snp-sites <kit common SNP sites> ...`
 
 # VCF -> ANNOVAR-coordinate table (with the original VCF coordinates as vcf_* columns)
